@@ -403,23 +403,23 @@ def validate_channel_name(name):
 @willie.module.rule('(help|commands|info)')
 def reply_help(bot, trigger):
     if bot.config.pleaseopme.reply_help:
-        bot.reply("I'm Willie bot with PleaseOpMe module.")
+        bot.say("I'm Willie bot with PleaseOpMe module.")
 
 
 @willie.module.rate(10)
 @willie.module.require_privmsg()
-@willie.module.rule('(auth)\s+(.*)')
+@willie.module.rule(r'(auth)\s+(.*)')
 def auth_as_admin(bot, trigger):
     password = trigger.match.group(2)
 
     if not bot.config.pleaseopme.admin_password:
-        bot.reply('Password not configured.')
+        bot.say('Password not configured.')
     elif password == bot.config.pleaseopme.admin_password:
         _admin_auth.add(trigger.hostmask)
-        bot.reply('OK.')
+        bot.say('OK.')
     else:
         _admin_auth.remove(trigger.hostmask)
-        bot.reply('Invalid password.')
+        bot.say('Invalid password.')
 
 
 def check_is_admin(bot, trigger):
@@ -431,23 +431,33 @@ def check_is_admin(bot, trigger):
 
 
 @willie.module.require_privmsg()
-@willie.module.rule('(part)\s+(.*)')
+@willie.module.rule(r'(part)\s+(.*)')
 def admin_part(bot, trigger):
     if not check_is_admin(bot, trigger):
-        bot.reply('Denied.')
+        bot.say('Denied.')
         return
 
     channel = trigger.match.group(2)
     channel = validate_channel_name(channel)
 
     if not channel:
-        bot.reply('Huh? Is that a channel?')
+        bot.say('Huh? Is that a channel?')
         return
 
     _logger.info('Part channel %s by %s', channel, trigger.nick)
-    bot.reply('Parting channel {}'.format(channel))
+    bot.say('Parting channel {}'.format(channel))
     bot.part(channel)
     _channel_tracker.remove(channel.lower())
+
+
+@willie.module.require_privmsg()
+@willie.module.rule(r'channels')
+def admin_channels(bot, trigger):
+    if not check_is_admin(bot, trigger):
+        bot.say('Denied.')
+        return
+
+    bot.say(' '.join(bot.privileges.keys()))
 
 
 @willie.module.nickname_commands('op')
@@ -478,7 +488,7 @@ def manual_revoke_all(bot, trigger):
         bot.reply('Denied.')
 
 
-@willie.module.rule('.*')
+@willie.module.rule(r'.*')
 @willie.module.event('NICK')
 @willie.module.priority('high')
 @willie.module.unblockable
@@ -491,7 +501,7 @@ def rename_nick(bot, trigger):
     _hostmask_map.remove(old.lower())
 
 
-@willie.module.rule('.*')
+@willie.module.rule(r'.*')
 @willie.module.event('QUIT')
 @willie.module.priority('high')
 @willie.module.unblockable
@@ -500,7 +510,7 @@ def remove_nick_quit(bot, trigger):
     _hostmask_map.remove(trigger.nick.lower())
 
 
-@willie.module.rule('.*')
+@willie.module.rule(r'.*')
 @willie.module.event('KICK')
 @willie.module.priority('high')
 @willie.module.unblockable
@@ -513,7 +523,7 @@ def track_kick(bot, trigger):
     _channel_tracker.remove(trigger.sender.lower())
 
 
-@willie.module.rule('.*')
+@willie.module.rule(r'.*')
 @willie.module.event('MODE')
 @willie.module.priority('high')
 @willie.module.unblockable
@@ -563,7 +573,7 @@ def channel_nick_mode_change(bot, trigger):
                 _priv_tracker.grant(channel.lower(), nick.lower(), hostmask, priv_level)
 
 
-@willie.module.rule('.*')
+@willie.module.rule(r'.*')
 @willie.module.event('JOIN', 'PRIVMSG', 'NOTICE', 'INVITE', 'MODE')
 @willie.module.unblockable
 def update_nick_hostmask(bot, trigger):
@@ -571,7 +581,7 @@ def update_nick_hostmask(bot, trigger):
         _hostmask_map.add(trigger.nick.lower(), trigger.hostmask)
 
 
-@willie.module.rule('.*')
+@willie.module.rule(r'.*')
 @willie.module.event('311')
 @willie.module.unblockable
 def update_whois_hostmask(bot, trigger):
@@ -610,7 +620,7 @@ def touch_privilege(bot):
 
 
 @willie.module.event('001', '251')
-@willie.module.rule('.*')
+@willie.module.rule(r'.*')
 @willie.module.unblockable
 def auto_join(bot, trigger):
     if bot.memory.get('pleaseopme:auto_joined'):
