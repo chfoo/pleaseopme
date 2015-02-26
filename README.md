@@ -25,7 +25,7 @@ Since an op bot should not be using extra features, just answer no to configurin
 
 Add our the PleaseOpMe module by copying or symlinking `pleaseopme.py` into the `~/.willie/modules/` (or wherever the configuration is located).
 
-To use only PleaseOpMe and disable all other Willie features, add `whitelist = pleaseopme` under `[core]` in the `default.cfg` file.
+To use only PleaseOpMe and disable all other Willie features, add `enable = pleaseopme` under `[core]` in the `default.cfg` file.
 
 Rerun the configuration wizard to answer the PleaseOpMe settings.
 
