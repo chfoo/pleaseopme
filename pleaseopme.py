@@ -320,23 +320,31 @@ _channel_tracker = None
 
 
 def configure(config):
+    if not config.option('Configure PleaseOpMe'):
+        return
+
     config.interactive_add(
         'pleaseopme', 'db_path',
-        'Database filename',
+        'PleaseOpMe: Database filename',
         default=os.path.abspath(os.path.expanduser('~/.willie/pleaseopme.db'))
     )
     config.interactive_add(
         'pleaseopme', 'admin_password',
-        'Admin password (leave blank to disable)', ispass=True
+        'PleaseOpMe: Admin password (leave blank to disable)', ispass=True
     )
     config.add_list(
         'pleaseopme', 'whitelist',
-        'Whitelisted channels (leave blank to allow all)', 'Channel'
+        'PleaseOpMe: Whitelisted channels (leave blank to allow all)', 'Channel'
     )
-    config.add_option('pleaseopme', 'logging', 'Enable log output')
-    config.add_option('pleaseopme', 'reply_help', 'Reply to help command')
     config.add_option(
-        'pleaseopme', 'auto_join', 'Remember and auto join channels on start'
+        'pleaseopme', 'logging', 'PleaseOpMe: Enable log output'
+    )
+    config.add_option(
+        'pleaseopme', 'reply_help', 'PleaseOpMe: Reply to help command'
+    )
+    config.add_option(
+        'pleaseopme', 'auto_join',
+        'PleaseOpMe: Remember and auto join channels on start'
     )
 
 
