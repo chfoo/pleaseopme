@@ -35,13 +35,18 @@ Usage
 
 To get the bot to join a channel, use the `/invite` command.
 
-The bot will monitor active users with operator (@) or voice (+) and give them back when they rejoin if they fit the criteria. The user must have the same hostmask (same nick, user, and host), have op or voice for 60 seconds, and be back in the channel within 24 hours by default.
+The bot will monitor active users with operator (@) or voice (+) and give them back when they rejoin if they fit the criteria. The user must 
 
-Password authentication is done by sending a private message with `auth PASSWORD`. The password is cached for 5 minutes by default.
+* have the same hostmask (same nick, user, and host), 
+* have said (or `/me`) something so the bot knows the user's hostmask, 
+* have op or voice for at least 60 seconds, 
+* and be back in the channel within 24 hours.
+
+Password authentication is done by sending a private message with `auth PASSWORD`. The password is cached for 5 minutes.
 
 To force the bot to leave, `/kick` the bot. Alternatively, send a private message to the bot with `part CHANNEL_NAME`.
 
 If you are bot admin, message the bot (say `BOT_NAME: op`) in the channel to get ops.
 
-Channel operators can message the bot `revokeall` in the channel to force it to recalculate its privilege table.
+Channel operators can message the bot `revokeall` (say `BOT_NAME: revokeall`) in the channel to force it to clear its privilege table.
 
