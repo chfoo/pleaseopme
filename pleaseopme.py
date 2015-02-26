@@ -19,7 +19,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.1'
+__version__ = '1.2'
 _logger = logging.getLogger(__name__)
 
 
@@ -609,7 +609,7 @@ def whois_unknown(bot):
                 bot.write(('WHOIS', nick))
 
 
-@willie.module.interval(60)
+@willie.module.interval(63)
 def touch_privilege(bot):
     _priv_tracker.clean()
 
@@ -648,7 +648,7 @@ def auto_join(bot, trigger):
                 time.sleep(5)
 
 
-@willie.module.interval(60)
+@willie.module.interval(61)
 def auto_priv(bot):
     def check_and_change_channel(channel):
         for level in PRIVILEGE_LEVELS:
@@ -673,7 +673,7 @@ def auto_priv(bot):
 
                 if not current_nick_priv_flags & level and mode \
                         and current_nick_hostmask == tracked_hostmask:
-                    _logger.info('Auto mode %s %s', channel, nick)
+                    _logger.info('Auto mode %s %s %s', channel, nick, mode)
                     bot.write(['MODE', channel, '+{0}'.format(mode), nick])
                     return  # change modes slowly
 
