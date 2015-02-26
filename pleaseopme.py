@@ -607,6 +607,7 @@ def whois_unknown(bot):
         for nick in bot.privileges[channel]:
             if not _hostmask_map.get(nick):
                 bot.write(('WHOIS', nick))
+                return
 
 
 @willie.module.interval(63)
