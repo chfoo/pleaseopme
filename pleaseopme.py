@@ -407,6 +407,7 @@ def auth_as_admin(bot, trigger):
         _admin_auth.add(trigger.hostmask)
         bot.reply('OK.')
     else:
+        _admin_auth.remove(trigger.hostmask)
         bot.reply('Invalid password.')
 
 
