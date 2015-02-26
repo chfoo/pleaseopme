@@ -410,7 +410,21 @@ def auth_as_admin(bot, trigger):
         bot.reply('Invalid password.')
 
 
-def base_admin_part(bot, trigger):
+def check_is_admin(bot, trigger):
+    if trigger.admin:
+        return True
+
+    if _admin_auth.check(trigger.hostmask):
+        return True
+
+
+@willie.module.require_privmsg()
+@willie.module.rule('(part)\s+(.*)')
+def admin_part(bot, trigger):
+    if not check_is_admin(bot, trigger):
+        bot.reply('Denied.')
+        return
+
     channel = trigger.match.group(2)
     channel = validate_channel_name(channel)
 
@@ -424,24 +438,12 @@ def base_admin_part(bot, trigger):
     _channel_tracker.remove(channel.lower())
 
 
-@willie.module.require_privmsg()
-@willie.module.rule('(part)\s+(.*)')
-def password_admin_part(bot, trigger):
-    if not _admin_auth.check(trigger.hostmask):
-        bot.reply('Denied. (Use "auth" command.)')
+@willie.module.nickname_commands('op')
+def manual_op(bot, trigger):
+    if not check_is_admin(bot, trigger):
+        bot.reply('Denied.')
         return
 
-    return base_admin_part(bot, trigger)
-
-
-@willie.module.require_admin()
-@willie.module.require_privmsg()
-@willie.module.rule('(part)\s+(.*)')
-def admin_part(bot, trigger):
-    return base_admin_part(bot, trigger)
-
-
-def base_manual_op(bot, trigger):
     channel = trigger.sender
 
     if bot.privileges[trigger.sender][bot.nick] < willie.module.OP:
@@ -452,27 +454,16 @@ def base_manual_op(bot, trigger):
     bot.write(['MODE', channel, '+o', trigger.nick])
 
 
-@willie.module.nickname_commands('op')
-def password_manual_op(bot, trigger):
-    return base_manual_op(bot, trigger)
-
-
-@willie.module.require_admin()
-@willie.module.nickname_commands('op')
-def password_manual_op(bot, trigger):
-    if not _admin_auth.check(trigger.hostmask):
-        bot.reply('Denied. (Use "auth" command.)')
-        return
-
-    return base_manual_op(bot, trigger)
-
-
 @willie.module.nickname_commands('revokeall')
 def manual_revoke_all(bot, trigger):
     channel = trigger.sender
-    _logger.info('Revoke all %s %s', channel, trigger.nick)
-    _priv_tracker.revoke_all(channel.lower())
-    bot.reply('OK.')
+
+    if bot.privileges[channel][trigger.nick] & willie.module.OP:
+        _logger.info('Revoke all %s %s', channel, trigger.nick)
+        _priv_tracker.revoke_all(channel.lower())
+        bot.reply('OK.')
+    else:
+        bot.reply('Denied.')
 
 
 @willie.module.rule('.*')
