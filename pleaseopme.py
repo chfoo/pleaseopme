@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import time
+import random
 
 from sqlalchemy import Column, String, DateTime, create_engine, delete, \
     insert, update, Enum
@@ -19,7 +20,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.2'
+__version__ = '1.2.1'
 _logger = logging.getLogger(__name__)
 
 
@@ -603,8 +604,14 @@ def update_whois_hostmask(bot, trigger):
 
 @willie.module.interval(10)
 def whois_unknown(bot):
-    for channel in bot.privileges:
-        for nick in bot.privileges[channel]:
+    channels = list(bot.privileges.keys())
+    random.shuffle(channels)
+
+    for channel in channels:
+        nicks = list(bot.privileges[channel].keys())
+        random.shuffle(nicks)
+
+        for nick in nicks:
             if not _hostmask_map.get(nick):
                 bot.write(('WHOIS', nick))
                 return
