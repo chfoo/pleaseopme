@@ -57,8 +57,10 @@ class AdminAuth(object):
 
     def remove(self, name):
         '''Remove an authenticated name.'''
-        _logger.info('Remove authenticated %s.', name)
-        self._name_map.pop(name, None)
+        value = self._name_map.pop(name, None)
+
+        if value:
+            _logger.info('Remove authenticated %s.', name)
 
     def check(self, name):
         '''Return whether the name is not expired.'''
