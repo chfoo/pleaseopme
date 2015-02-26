@@ -93,8 +93,12 @@ class PrivilegeRecord(DBBase):
     channel = Column(String, primary_key=True, nullable=False)
     nickname = Column(String, primary_key=True, nullable=False)
     hostmask = Column(String, nullable=False)
-    level = Column(Enum(*[str(level) for level in PRIVILEGE_LEVELS]), nullable=False)
-    when_privileged = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    level = Column(
+        Enum(*[str(level) for level in PRIVILEGE_LEVELS]), nullable=False
+    )
+    when_privileged = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False
+    )
     touch = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
 
@@ -147,7 +151,9 @@ class PrivilegeTracker(BaseDatabase):
     def clean(self):
         '''Remove old entries.'''
         _logger.debug('Clean privileges.')
-        time_ago = datetime.datetime.utcfromtimestamp(time.time() - self._max_absent_time)
+        time_ago = datetime.datetime.utcfromtimestamp(
+            time.time() - self._max_absent_time
+        )
 
         with self._session() as session:
             query = delete(PrivilegeRecord)\
@@ -205,7 +211,8 @@ class PrivilegeTracker(BaseDatabase):
     def touch(self, channel, nickname, hostmask, level):
         '''Update privilege for user.'''
         with self._session() as session:
-            before_num_rows = session.query(count(PrivilegeRecord.channel)).scalar()
+            before_num_rows = session.query(count(PrivilegeRecord.channel))\
+                .scalar()
 
             query = insert(PrivilegeRecord).prefix_with('OR IGNORE')
             session.execute(
@@ -218,11 +225,13 @@ class PrivilegeTracker(BaseDatabase):
                 }
             )
 
-            after_num_rows = session.query(count(PrivilegeRecord.channel)).scalar()
+            after_num_rows = session.query(count(PrivilegeRecord.channel))\
+                .scalar()
 
             if before_num_rows != after_num_rows:
                 _logger.info(
-                    'Grant privilege for channel=%s nickname=%s hostmask=%s level=%s',
+                    'Grant privilege for channel=%s nickname=%s '
+                    'hostmask=%s level=%s',
                     channel, nickname, hostmask, level
                 )
 
@@ -241,8 +250,12 @@ class PrivilegeTracker(BaseDatabase):
     def get_privileged(self, channel, level):
         '''Return privileged list of nickname & hostmask pairs.'''
         with self._session() as session:
-            touch_ago = datetime.datetime.utcfromtimestamp(time.time() - self._max_absent_time)
-            grant_ago = datetime.datetime.utcfromtimestamp(time.time() - self._min_priv_time)
+            touch_ago = datetime.datetime.utcfromtimestamp(
+                time.time() - self._max_absent_time
+            )
+            grant_ago = datetime.datetime.utcfromtimestamp(
+                time.time() - self._min_priv_time
+            )
 
             query = session.query(
                 PrivilegeRecord.nickname,
@@ -374,22 +387,15 @@ def setup(bot):
 @willie.module.rule(r'.*')
 def join_on_invite(bot, trigger):
     channel = trigger.args[1]
+    whitelisted_channels = bot.config.pleaseopme.get_list('whitelist')
 
-    def join_channel():
+    if not whitelisted_channels or channel in whitelisted_channels:
         _logger.info('Join channel %s by %s', channel, trigger.nick)
         bot.reply('Joining channel {0}'.format(channel))
         bot.join(channel)
         _channel_tracker.add(channel.lower())
-
-    def deny():
-        bot.reply('Channel is not whitelisted.')
-
-    whitelisted_channels = bot.config.pleaseopme.get_list('whitelist')
-
-    if not whitelisted_channels or channel in whitelisted_channels:
-        join_channel()
     else:
-        deny()
+        bot.reply('Channel is not whitelisted.')
 
 
 def validate_channel_name(name):
@@ -570,7 +576,9 @@ def channel_nick_mode_change(bot, trigger):
             hostmask = _hostmask_map.get(nick)
 
             if hostmask and priv_level in PRIVILEGE_LEVELS:
-                _priv_tracker.grant(channel.lower(), nick.lower(), hostmask, priv_level)
+                _priv_tracker.grant(
+                    channel.lower(), nick.lower(), hostmask, priv_level
+                )
 
 
 @willie.module.rule(r'.*')
@@ -615,7 +623,9 @@ def touch_privilege(bot):
 
             for priv_level in PRIVILEGE_LEVELS:
                 if priv_level & priv_flags:
-                    _priv_tracker.touch(channel.lower(), nick.lower(), hostmask, priv_level)
+                    _priv_tracker.touch(
+                        channel.lower(), nick.lower(), hostmask, priv_level
+                    )
                     continue
 
 
