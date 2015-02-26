@@ -38,7 +38,7 @@ To get the bot to join a channel, use the `/invite` command.
 The bot will monitor active users with operator (@) or voice (+) and give them back when they rejoin if they fit the criteria. The user must 
 
 * have the same hostmask (same nick, user, and host), 
-* have said (or `/me`) something so the bot knows the user's hostmask, 
+* have said (or `/me`) something so the bot knows the user's hostmask if the bot has not done a WHOIS query on the user yet, 
 * have op or voice for at least 60 seconds, 
 * and be back in the channel within 24 hours.
 

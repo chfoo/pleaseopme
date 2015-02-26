@@ -19,7 +19,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.0'
+__version__ = '1.1'
 _logger = logging.getLogger(__name__)
 
 
@@ -569,6 +569,26 @@ def channel_nick_mode_change(bot, trigger):
 def update_nick_hostmask(bot, trigger):
     if trigger.nick.is_nick():
         _hostmask_map.add(trigger.nick.lower(), trigger.hostmask)
+
+
+@willie.module.rule('.*')
+@willie.module.event('311')
+@willie.module.unblockable
+def update_whois_hostmask(bot, trigger):
+    nick, user, host = trigger.args[1:4]
+    nick_identifer = willie.tools.Identifier(nick)
+
+    hostmask = '{0}!{1}@{2}'.format(nick, user, host)
+    _logger.debug('Add hostmask %s %s', nick, hostmask)
+    _hostmask_map.add(nick_identifer.lower(), hostmask)
+
+
+@willie.module.interval(10)
+def whois_unknown(bot):
+    for channel in bot.privileges:
+        for nick in bot.privileges[channel]:
+            if not _hostmask_map.get(nick):
+                bot.write(('WHOIS', nick))
 
 
 @willie.module.interval(60)
