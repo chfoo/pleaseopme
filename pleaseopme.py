@@ -19,6 +19,7 @@ import willie.module
 import willie.tools
 
 
+__version__ = '1.0'
 _logger = logging.getLogger(__name__)
 
 
