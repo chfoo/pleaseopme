@@ -8,6 +8,7 @@ import os
 import re
 import time
 import random
+import threading
 
 from sqlalchemy import Column, String, DateTime, create_engine, delete, \
     insert, update, Enum
@@ -20,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.2.1'
+__version__ = '1.2.2'
 _logger = logging.getLogger(__name__)
 
 
@@ -637,20 +638,23 @@ def touch_privilege(bot):
                     continue
 
 
+_auto_join_lock = threading.Lock()
+
 @willie.module.event('001', '251')
 @willie.module.rule(r'.*')
 @willie.module.unblockable
 def auto_join(bot, trigger):
-    if bot.memory.get('pleaseopme:auto_joined'):
+    if not bot.config.pleaseopme.auto_join:
         return
 
-    bot.memory['pleaseopme:auto_joined'] = True
+    whitelisted_channels = bot.config.pleaseopme.get_list('whitelist')
 
-    if bot.config.pleaseopme.auto_join:
-        whitelisted_channels = bot.config.pleaseopme.get_list('whitelist')
+    for channel in _channel_tracker.get_all():
+        if not whitelisted_channels or channel in whitelisted_channels:
+            with _auto_join_lock:
+                if channel in bot.privileges:
+                    continue
 
-        for channel in _channel_tracker.get_all():
-            if not whitelisted_channels or channel in whitelisted_channels:
                 _logger.info('Auto join %s', channel)
                 bot.join(channel)
                 time.sleep(5)
