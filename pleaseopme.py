@@ -313,14 +313,6 @@ class HostmaskMap(dict):
 
         self.pop(nickname, None)
 
-    def rename(self, old_nick, new_nick):
-        _logger.debug('Rename %s to %s', old_nick, new_nick)
-
-        hostmask = self[old_nick].pop(None)
-
-        if hostmask:
-            self[new_nick] = hostmask
-
     def clean(self):
         _logger.debug('Clean map')
 
