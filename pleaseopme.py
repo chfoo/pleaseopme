@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.2.3'
+__version__ = '1.2.4'
 _logger = logging.getLogger(__name__)
 
 
@@ -703,7 +703,8 @@ def auto_priv(bot):
                         and current_nick_hostmask == tracked_hostmask:
                     _logger.info('Auto mode %s %s %s', channel, nick, mode)
                     bot.write(['MODE', channel, '+{0}'.format(mode), nick])
-                    return  # change modes slowly
+                    time.sleep(1)
+                    return  # change modes slowly one at a time
 
     for channel in bot.privileges:
         if bot.privileges[channel][bot.nick] < willie.module.OP:
