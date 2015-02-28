@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.2.2'
+__version__ = '1.2.3'
 _logger = logging.getLogger(__name__)
 
 
