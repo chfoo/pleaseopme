@@ -510,6 +510,7 @@ def rename_nick(bot, trigger):
     _admin_auth.remove(old.lower())
     _admin_auth.remove(new.lower())
     _hostmask_map.remove(old.lower())
+    _hostmask_map.remove(new.lower())
 
 
 @willie.module.rule(r'.*')
@@ -578,7 +579,7 @@ def channel_nick_mode_change(bot, trigger):
             _priv_tracker.revoke(channel, nick)
         elif sign == '+':
             priv_level = STR_TO_PRIV_MAP.get(mode)
-            hostmask = _hostmask_map.get(nick)
+            hostmask = _hostmask_map.get(nick.lower())
 
             if hostmask and priv_level in PRIVILEGE_LEVELS:
                 _priv_tracker.grant(
@@ -625,8 +626,10 @@ def whois_unknown(bot):
         random.shuffle(nicks)
 
         for nick in nicks:
-            if not _hostmask_map.get(nick) and nick not in _nicks_pending_whois:
-                _nicks_pending_whois.add(nick)
+            nick_lowered = nick.lower()
+            if not _hostmask_map.get(nick_lowered) and \
+                    nick_lowered not in _nicks_pending_whois:
+                _nicks_pending_whois.add(nick_lowered)
                 bot.write(('WHOIS', nick))
                 return
 
@@ -687,7 +690,7 @@ def auto_priv(bot):
 
                 current_nick_priv_flags = bot.privileges[channel][nick]
                 mode = PRIV_TO_STR_MAP.get(level)
-                current_nick_hostmask = _hostmask_map.get(nick)
+                current_nick_hostmask = _hostmask_map.get(nick.lower())
 
                 _logger.debug(
                     'Checking channel=%s nick=%s hostmask=%s '
