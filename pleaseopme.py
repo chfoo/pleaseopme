@@ -51,42 +51,48 @@ class AdminAuth(object):
     def __init__(self, cache_time=300):
         self._cache_time = cache_time
         self._name_map = {}
+        self._lock = threading.Lock()
 
     def add(self, name):
         '''Add an authenticated name to the table.'''
         _logger.info('Authenticated %s.', name)
-        self._name_map[name] = datetime.datetime.utcnow()
+
+        with self._lock:
+            self._name_map[name] = datetime.datetime.utcnow()
 
     def remove(self, name):
         '''Remove an authenticated name.'''
-        value = self._name_map.pop(name, None)
+        with self._lock:
+            value = self._name_map.pop(name, None)
 
         if value:
             _logger.info('Remove authenticated %s.', name)
 
     def check(self, name):
         '''Return whether the name is not expired.'''
-        if name in self._name_map:
-            datetime_now = datetime.datetime.utcnow()
-            auth_datetime = self._name_map[name]
+        with self._lock:
+            if name in self._name_map:
+                datetime_now = datetime.datetime.utcnow()
+                auth_datetime = self._name_map[name]
 
-            return datetime_now - auth_datetime <= \
-                datetime.timedelta(seconds=self._cache_time)
-        else:
-            return False
+                return datetime_now - auth_datetime <= \
+                    datetime.timedelta(seconds=self._cache_time)
+            else:
+                return False
 
     def clean(self):
         '''Remove expired entries.'''
         _logger.debug('Clean authenticated.')
         datetime_now = datetime.datetime.utcnow()
 
-        for name in tuple(self._name_map.keys()):
-            auth_datetime = self._name_map.get(name)
+        with self._lock:
+            for name in tuple(self._name_map.keys()):
+                auth_datetime = self._name_map.get(name)
 
-            if auth_datetime:
-                if datetime_now - auth_datetime > \
-                        datetime.timedelta(seconds=self._cache_time):
-                    self._name_map.pop(name, None)
+                if auth_datetime:
+                    if datetime_now - auth_datetime > \
+                            datetime.timedelta(seconds=self._cache_time):
+                        self._name_map.pop(name, None)
 
 
 class PrivilegeRecord(DBBase):
@@ -149,6 +155,7 @@ class PrivilegeTracker(BaseDatabase):
         super().__init__(db_path)
         self._max_absent_time = max_absent_time
         self._min_priv_time = min_priv_time
+        self._lock = threading.Lock()
 
     def clean(self):
         '''Remove old entries.'''
@@ -157,7 +164,7 @@ class PrivilegeTracker(BaseDatabase):
             time.time() - self._max_absent_time
         )
 
-        with self._session() as session:
+        with self._lock, self._session() as session:
             query = delete(PrivilegeRecord)\
                 .where(PrivilegeRecord.touch < time_ago)
             session.execute(query)
@@ -169,7 +176,7 @@ class PrivilegeTracker(BaseDatabase):
             channel, nickname, hostmask, level
         )
 
-        with self._session() as session:
+        with self._lock, self._session() as session:
             query = delete(PrivilegeRecord) \
                 .where(PrivilegeRecord.channel == channel) \
                 .where(PrivilegeRecord.nickname == nickname)
@@ -192,7 +199,7 @@ class PrivilegeTracker(BaseDatabase):
             channel, nickname
         )
 
-        with self._session() as session:
+        with self._lock, self._session() as session:
             query = delete(PrivilegeRecord) \
                 .where(PrivilegeRecord.channel == channel)\
                 .where(PrivilegeRecord.nickname == nickname)
@@ -205,14 +212,14 @@ class PrivilegeTracker(BaseDatabase):
             channel
         )
 
-        with self._session() as session:
+        with self._lock, self._session() as session:
             query = delete(PrivilegeRecord) \
                 .where(PrivilegeRecord.channel == channel)
             session.execute(query)
 
     def touch(self, channel, nickname, hostmask, level):
         '''Update privilege for user.'''
-        with self._session() as session:
+        with self._lock, self._session() as session:
             before_num_rows = session.query(count(PrivilegeRecord.channel))\
                 .scalar()
 
@@ -251,7 +258,7 @@ class PrivilegeTracker(BaseDatabase):
 
     def get_privileged(self, channel, level):
         '''Return privileged list of nickname & hostmask pairs.'''
-        with self._session() as session:
+        with self._lock, self._session() as session:
             touch_ago = datetime.datetime.utcfromtimestamp(
                 time.time() - self._max_absent_time
             )
@@ -273,8 +280,12 @@ class PrivilegeTracker(BaseDatabase):
 
 class ChannelTracker(BaseDatabase):
     '''Track channels for auto join.'''
+    def __init__(self, db_path):
+        super().__init__(db_path)
+        self._lock = threading.Lock()
+
     def add(self, channel):
-        with self._session() as session:
+        with self._lock, self._session() as session:
             session.execute(
                 insert(Channel).prefix_with('OR IGNORE'),
                 {
@@ -283,7 +294,7 @@ class ChannelTracker(BaseDatabase):
             )
 
     def remove(self, channel):
-        with self._session() as session:
+        with self._lock, self._session() as session:
             session.execute(
                 delete(Channel).where(Channel.channel == channel),
                 {
@@ -292,7 +303,7 @@ class ChannelTracker(BaseDatabase):
             )
 
     def get_all(self):
-        with self._session() as session:
+        with self._lock, self._session() as session:
             query = session.query(Channel.channel)
 
             for row in query:
