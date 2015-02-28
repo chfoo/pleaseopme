@@ -595,8 +595,17 @@ def update_whois_hostmask(bot, trigger):
     _hostmask_map.add(nick_identifer.lower(), hostmask)
 
 
-@willie.module.interval(10)
+_nicks_pending_whois = set()
+_last_pending_nicks_clear = time.time()
+
+@willie.module.interval(13)
 def whois_unknown(bot):
+    global _last_pending_nicks_clear
+
+    if time.time() - _last_pending_nicks_clear > 301:
+        _last_pending_nicks_clear = time.time()
+        _nicks_pending_whois.clear()
+
     channels = list(bot.privileges.keys())
     random.shuffle(channels)
 
@@ -605,7 +614,8 @@ def whois_unknown(bot):
         random.shuffle(nicks)
 
         for nick in nicks:
-            if not _hostmask_map.get(nick):
+            if not _hostmask_map.get(nick) and nick not in _nicks_pending_whois:
+                _nicks_pending_whois.add(nick)
                 bot.write(('WHOIS', nick))
                 return
 
