@@ -62,3 +62,10 @@ To get ops, message the bot `op` (say `BOT_NAME: op`) in the channel.
 
 To get a list of currently joined channels, send a private message `channels` .
 
+
+Tips
+====
+
+* The bot may occasionally need to be restarted due to bugs or updates. Run at least two bots with each on different servers and connected to a different IRC server.
+* Start the bot with a daemon system such as Upstart or Systemd and configure it to restart if the bot dies (with appropriate restart intervals if applicable).
+* If the daemon system supports restarting, use the `exit_on_error` config option so the bot is freshly started on a new process to avoid any lingering bugs.
