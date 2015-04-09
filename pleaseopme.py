@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.2.4'
+__version__ = '1.2.5'
 _logger = logging.getLogger(__name__)
 
 
@@ -638,9 +638,17 @@ def whois_unknown(bot):
 def touch_privilege(bot):
     _priv_tracker.clean()
 
-    for channel in bot.privileges:
-        for nick in bot.privileges[channel]:
-            priv_flags = bot.privileges[channel][nick]
+    # The bot library is a mess when it comes to threading :P
+    for channel in list(bot.privileges.keys()):
+        if channel not in bot.privileges:
+            continue
+
+        for nick in list(bot.privileges[channel].keys()):
+            try:
+                priv_flags = bot.privileges[channel][nick]
+            except KeyError:
+                continue
+
             hostmask = _hostmask_map.get(nick)
 
             if not hostmask:
@@ -707,7 +715,13 @@ def auto_priv(bot):
                     return  # change modes slowly one at a time
 
     for channel in bot.privileges:
-        if bot.privileges[channel][bot.nick] < willie.module.OP:
+        # Threading issues :P
+        try:
+            priv_level = bot.privileges[channel][bot.nick]
+        except KeyError:
+            continue
+
+        if priv_level < willie.module.OP:
             _logger.debug('Not op in %s', channel)
         else:
             check_and_change_channel(channel)
