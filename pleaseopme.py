@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.2.5'
+__version__ = '1.3'
 _logger = logging.getLogger(__name__)
 
 
@@ -309,6 +309,9 @@ class ChannelTracker(BaseDatabase):
             for row in query:
                 yield row.channel
 
+    def count(self):
+        return len(tuple(self.get_all()))
+
 
 class HostmaskMap(dict):
     '''Track nicknames to hostmasks.'''
@@ -367,6 +370,10 @@ def configure(config):
         'pleaseopme', 'auto_join',
         'PleaseOpMe: Remember and auto join channels on start'
     )
+    config.add_option(
+        'pleaseopme', 'max_channels',
+        'PleaseOpMe: Maximum number of channels'
+    )
 
 
 def setup(bot):
@@ -393,12 +400,20 @@ def setup(bot):
 def join_on_invite(bot, trigger):
     channel = trigger.args[1]
     whitelisted_channels = bot.config.pleaseopme.get_list('whitelist')
+    try:
+        max_channels = int(bot.config.pleaseopme.max_channels)
+    except (TypeError, ValueError):
+        max_channels = None
 
     if not whitelisted_channels or channel in whitelisted_channels:
-        _logger.info('Join channel %s by %s', channel, trigger.nick)
-        bot.reply('Joining channel {0}'.format(channel))
-        bot.join(channel)
-        _channel_tracker.add(channel.lower())
+        current_num_channels = _channel_tracker.count()
+        if max_channels and current_num_channels >= max_channels:
+            bot.reply('Too many channels.')
+        else:
+            _logger.info('Join channel %s by %s', channel, trigger.nick)
+            bot.reply('Joining channel {0}'.format(channel))
+            bot.join(channel)
+            _channel_tracker.add(channel.lower())
     else:
         bot.reply('Channel is not whitelisted.')
 
