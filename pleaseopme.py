@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.3'
+__version__ = '1.3.1'
 _logger = logging.getLogger(__name__)
 
 
@@ -441,10 +441,10 @@ def auth_as_admin(bot, trigger):
     if not bot.config.pleaseopme.admin_password:
         bot.say('Password not configured.')
     elif password == bot.config.pleaseopme.admin_password:
-        _admin_auth.add(trigger.hostmask)
+        _admin_auth.add(lower_hostmask(trigger.hostmask))
         bot.say('OK.')
     else:
-        _admin_auth.remove(trigger.hostmask)
+        _admin_auth.remove(lower_hostmask(trigger.hostmask))
         bot.say('Invalid password.')
 
 
@@ -452,7 +452,7 @@ def check_is_admin(bot, trigger):
     if trigger.admin:
         return True
 
-    if _admin_auth.check(trigger.hostmask):
+    if _admin_auth.check(lower_hostmask(trigger.hostmask)):
         return True
 
 
@@ -607,7 +607,9 @@ def channel_nick_mode_change(bot, trigger):
 @willie.module.unblockable
 def update_nick_hostmask(bot, trigger):
     if trigger.nick.is_nick():
-        _hostmask_map.add(trigger.nick.lower(), trigger.hostmask)
+        _hostmask_map.add(
+            trigger.nick.lower(), lower_hostmask(trigger.hostmask)
+        )
 
 
 @willie.module.rule(r'.*')
@@ -617,7 +619,7 @@ def update_whois_hostmask(bot, trigger):
     nick, user, host = trigger.args[1:4]
     nick_identifer = willie.tools.Identifier(nick)
 
-    hostmask = '{0}!{1}@{2}'.format(nick, user, host)
+    hostmask = '{0}!{1}@{2}'.format(nick_identifer.lower(), user, host)
     _logger.debug('Add hostmask %s %s', nick, hostmask)
     _hostmask_map.add(nick_identifer.lower(), hostmask)
 
@@ -740,3 +742,14 @@ def auto_priv(bot):
             _logger.debug('Not op in %s', channel)
         else:
             check_and_change_channel(channel)
+
+
+def lower_hostmask(hostmask):
+    if '!' in hostmask:
+        nick, rest = hostmask.split('!', 1)
+        nick_identifer = willie.tools.Identifier(nick)
+
+        hostmask = '{0}!{1}'.format(nick_identifer.lower(), rest)
+        return hostmask
+    else:
+        return hostmask
