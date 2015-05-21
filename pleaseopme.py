@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.3.1'
+__version__ = '1.4'
 _logger = logging.getLogger(__name__)
 
 
@@ -682,9 +682,10 @@ def touch_privilege(bot):
 _auto_join_lock = threading.Lock()
 
 @willie.module.event('001', '251')
+@willie.module.interval(7200)
 @willie.module.rule(r'.*')
 @willie.module.unblockable
-def auto_join(bot, trigger):
+def auto_join(bot, trigger=None):
     if not bot.config.pleaseopme.auto_join:
         return
 
