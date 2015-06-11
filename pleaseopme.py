@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.4'
+__version__ = '1.4.1'
 _logger = logging.getLogger(__name__)
 
 
@@ -419,7 +419,7 @@ def join_on_invite(bot, trigger):
 
 
 def validate_channel_name(name):
-    match = re.match(r'[#&a-zA-Z0-9_-]+$', name)
+    match = re.match(r'[&#+!][^ ,\x07]{1,50}$', name)
 
     if match:
         return name
