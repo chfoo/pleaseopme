@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.4.1'
+__version__ = '1.5'
 _logger = logging.getLogger(__name__)
 
 
@@ -280,9 +280,13 @@ class PrivilegeTracker(BaseDatabase):
 
 class ChannelTracker(BaseDatabase):
     '''Track channels for auto join.'''
+
+    MAX_OPLESS_TIME = 86400 * 2
+
     def __init__(self, db_path):
         super().__init__(db_path)
         self._lock = threading.Lock()
+        self._op_time_table = {}
 
     def add(self, channel):
         with self._lock, self._session() as session:
@@ -311,6 +315,19 @@ class ChannelTracker(BaseDatabase):
 
     def count(self):
         return len(tuple(self.get_all()))
+
+    def touch_op(self, channel):
+        self._op_time_table[channel] = time.time()
+
+    def opless_time(self, channel):
+        if channel not in self._op_time_table:
+            # Bot has just started up. Give some time for people to op the bot.
+            self._op_time_table[channel] = time.time()
+
+        time_now = time.time()
+        when_opped = self._op_time_table[channel]
+
+        return time_now - when_opped
 
 
 class HostmaskMap(dict):
@@ -369,6 +386,10 @@ def configure(config):
     config.add_option(
         'pleaseopme', 'auto_join',
         'PleaseOpMe: Remember and auto join channels on start'
+    )
+    config.add_option(
+        'pleaseopme', 'auto_part',
+        'PleaseOpMe: Automatically part channels if not op for 2 days'
     )
     config.add_option(
         'pleaseopme', 'max_channels',
@@ -743,6 +764,28 @@ def auto_priv(bot):
             _logger.debug('Not op in %s', channel)
         else:
             check_and_change_channel(channel)
+
+
+@willie.module.interval(3000)
+def auto_part(bot):
+    if not bot.config.pleaseopme.auto_part:
+        return
+
+    for channel in bot.privileges:
+        # Threading issues :P
+        try:
+            priv_level = bot.privileges[channel][bot.nick]
+        except KeyError:
+            continue
+
+        channel = channel.lower()
+
+        if priv_level & willie.module.OP:
+            _channel_tracker.touch_op(channel)
+        elif _channel_tracker.opless_time(channel) > ChannelTracker.MAX_OPLESS_TIME:
+            _logger.info('Auto part %s', channel)
+            bot.part(channel)
+            _channel_tracker.remove(channel)
 
 
 def lower_hostmask(hostmask):
