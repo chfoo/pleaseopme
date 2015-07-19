@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.5'
+__version__ = '1.5.1'
 _logger = logging.getLogger(__name__)
 
 
@@ -786,6 +786,7 @@ def auto_part(bot):
             _logger.info('Auto part %s', channel)
             bot.part(channel)
             _channel_tracker.remove(channel)
+            time.sleep(2)
 
 
 def lower_hostmask(hostmask):
