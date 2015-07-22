@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.5.1'
+__version__ = '1.5.2'
 _logger = logging.getLogger(__name__)
 
 
@@ -771,7 +771,7 @@ def auto_part(bot):
     if not bot.config.pleaseopme.auto_part:
         return
 
-    for channel in bot.privileges:
+    for channel in list(bot.privileges.keys()):
         # Threading issues :P
         try:
             priv_level = bot.privileges[channel][bot.nick]
