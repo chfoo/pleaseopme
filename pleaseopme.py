@@ -703,7 +703,7 @@ def touch_privilege(bot):
 _auto_join_lock = threading.Lock()
 
 @willie.module.event('001', '251')
-@willie.module.interval(7200)
+@willie.module.interval(7201)
 @willie.module.rule(r'.*')
 @willie.module.unblockable
 def auto_join(bot, trigger=None):
@@ -766,7 +766,7 @@ def auto_priv(bot):
             check_and_change_channel(channel)
 
 
-@willie.module.interval(3000)
+@willie.module.interval(3013)
 def auto_part(bot):
     if not bot.config.pleaseopme.auto_part:
         return
