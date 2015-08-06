@@ -11,7 +11,7 @@ import random
 import threading
 
 from sqlalchemy import Column, String, DateTime, create_engine, delete, \
-    insert, update, Enum
+    insert, update, Enum, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql.functions import count
@@ -21,14 +21,11 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.5.2'
+__version__ = '1.5.3'
 _logger = logging.getLogger(__name__)
 
 
-PRIVILEGE_LEVELS = frozenset({
-    willie.module.OP,
-    willie.module.VOICE
-})
+PRIVILEGE_LEVELS = (willie.module.OP, willie.module.VOICE)
 
 STR_TO_PRIV_MAP = {
     'v': willie.module.VOICE,
@@ -101,9 +98,7 @@ class PrivilegeRecord(DBBase):
     channel = Column(String, primary_key=True, nullable=False)
     nickname = Column(String, primary_key=True, nullable=False)
     hostmask = Column(String, nullable=False)
-    level = Column(
-        Enum(*[str(level) for level in PRIVILEGE_LEVELS]), nullable=False
-    )
+    level = Column(Integer, nullable=False)
     when_privileged = Column(
         DateTime, default=datetime.datetime.utcnow, nullable=False
     )
@@ -171,26 +166,56 @@ class PrivilegeTracker(BaseDatabase):
 
     def grant(self, channel, nickname, hostmask, level):
         '''Add privilege for user.'''
-        _logger.info(
-            'Grant privilege to channel=%s nickname=%s hostmask=%s level=%s',
-            channel, nickname, hostmask, level
-        )
+        self._try_insert(channel, nickname, hostmask, level)
+        self._upgrade_level(channel, nickname, hostmask, level)
 
+    def _try_insert(self, channel, nickname, hostmask, level):
         with self._lock, self._session() as session:
-            query = delete(PrivilegeRecord) \
-                .where(PrivilegeRecord.channel == channel) \
-                .where(PrivilegeRecord.nickname == nickname)
-            session.execute(query)
+            before_num_rows = session.query(count(PrivilegeRecord.channel)) \
+                .scalar()
 
+            query = insert(PrivilegeRecord).prefix_with('OR IGNORE')
             session.execute(
-                insert(PrivilegeRecord),
+                query,
                 {
                     'channel': channel,
                     'nickname': nickname,
                     'hostmask': hostmask,
+                    'level': level
+                }
+            )
+
+            after_num_rows = session.query(count(PrivilegeRecord.channel)) \
+                .scalar()
+
+            if before_num_rows != after_num_rows:
+                _logger.info(
+                    'Grant privilege for channel=%s nickname=%s '
+                    'hostmask=%s level=%s',
+                    channel, nickname, hostmask, level
+                )
+
+    def _upgrade_level(self, channel, nickname, hostmask, level):
+        with self._lock, self._session() as session:
+            query = update(PrivilegeRecord) \
+                .where(PrivilegeRecord.channel == channel) \
+                .where(PrivilegeRecord.nickname == nickname) \
+                .where(PrivilegeRecord.hostmask == hostmask) \
+                .where(PrivilegeRecord.level < level)
+
+            rows = session.execute(
+                query,
+                {
                     'level': level,
                 }
             )
+
+            if getattr(rows, 'rowcount'):
+                _logger.info(
+                    'Grant privilege for channel=%s nickname=%s '
+                    'hostmask=%s level=%s',
+                    channel, nickname, hostmask, level
+                )
 
     def revoke(self, channel, nickname):
         '''Remove privilege for user.'''
@@ -219,31 +244,11 @@ class PrivilegeTracker(BaseDatabase):
 
     def touch(self, channel, nickname, hostmask, level):
         '''Update privilege for user.'''
+
+        self._try_insert(channel, nickname, hostmask, level)
+        self._upgrade_level(channel, nickname, hostmask, level)
+
         with self._lock, self._session() as session:
-            before_num_rows = session.query(count(PrivilegeRecord.channel))\
-                .scalar()
-
-            query = insert(PrivilegeRecord).prefix_with('OR IGNORE')
-            session.execute(
-                query,
-                {
-                    'channel': channel,
-                    'nickname': nickname,
-                    'hostmask': hostmask,
-                    'level': level
-                }
-            )
-
-            after_num_rows = session.query(count(PrivilegeRecord.channel))\
-                .scalar()
-
-            if before_num_rows != after_num_rows:
-                _logger.info(
-                    'Grant privilege for channel=%s nickname=%s '
-                    'hostmask=%s level=%s',
-                    channel, nickname, hostmask, level
-                )
-
             query = update(PrivilegeRecord) \
                 .where(PrivilegeRecord.channel == channel) \
                 .where(PrivilegeRecord.nickname == nickname) \
