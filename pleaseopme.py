@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.5.3'
+__version__ = '1.5.4'
 _logger = logging.getLogger(__name__)
 
 
@@ -617,7 +617,7 @@ def channel_nick_mode_change(bot, trigger):
         nick = nicks[index]
 
         if sign == '-':
-            _priv_tracker.revoke(channel, nick)
+            _priv_tracker.revoke(channel.lower(), nick.lower())
         elif sign == '+':
             priv_level = STR_TO_PRIV_MAP.get(mode)
             hostmask = _hostmask_map.get(nick.lower())
