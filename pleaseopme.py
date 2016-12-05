@@ -21,7 +21,7 @@ import willie.module
 import willie.tools
 
 
-__version__ = '1.5.4'
+__version__ = '1.5.5'
 _logger = logging.getLogger(__name__)
 
 
@@ -190,7 +190,7 @@ class PrivilegeTracker(BaseDatabase):
 
             if before_num_rows != after_num_rows:
                 _logger.info(
-                    'Grant privilege for channel=%s nickname=%s '
+                    'Grant privilege (new) for channel=%s nickname=%s '
                     'hostmask=%s level=%s',
                     channel, nickname, hostmask, level
                 )
@@ -212,7 +212,7 @@ class PrivilegeTracker(BaseDatabase):
 
             if getattr(rows, 'rowcount'):
                 _logger.info(
-                    'Grant privilege for channel=%s nickname=%s '
+                    'Grant privilege (upgrade) for channel=%s nickname=%s '
                     'hostmask=%s level=%s',
                     channel, nickname, hostmask, level
                 )
@@ -623,6 +623,9 @@ def channel_nick_mode_change(bot, trigger):
             hostmask = _hostmask_map.get(nick.lower())
 
             if hostmask and priv_level in PRIVILEGE_LEVELS:
+                _logger.info('%s gives %s (level %s) in %s',
+                    trigger.sender, mode, priv_level, channel
+                )
                 _priv_tracker.grant(
                     channel.lower(), nick.lower(), hostmask, priv_level
                 )
