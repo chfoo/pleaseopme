@@ -624,7 +624,7 @@ def channel_nick_mode_change(bot, trigger):
 
             if hostmask and priv_level in PRIVILEGE_LEVELS:
                 _logger.info('%s gives %s (level %s) in %s',
-                    trigger.sender, mode, priv_level, channel
+                    trigger.nick, mode, priv_level, channel
                 )
                 _priv_tracker.grant(
                     channel.lower(), nick.lower(), hostmask, priv_level
