@@ -10,6 +10,7 @@ import ssl
 import time
 import threading
 import argparse
+import functools
 
 from sqlalchemy import Column, String, DateTime, create_engine, delete, \
     insert, update, Enum, Integer
@@ -690,7 +691,7 @@ class Bot(irc.bot.SingleServerIRCBot):
 
             for channel in channel_group:
                 # Avoid blocking
-                self.reactor.scheduler.execute_delayed(1, self.connection.who, (channel,))
+                self.reactor.scheduler.execute_after(1, functools.partial(self.connection.who, channel))
 
     def _auto_priv(self):
         def check_and_change_channel(channel: str):
