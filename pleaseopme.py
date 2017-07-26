@@ -398,10 +398,10 @@ class Bot(irc.bot.SingleServerIRCBot):
 
         self.connection.set_rate_limit(0.5)
 
-        self.reactor.execute_every(62, self._touch_privilege)
-        self.reactor.execute_every(7201, self._auto_join_channels)
-        self.reactor.execute_every(61, self._auto_priv)
-        self.reactor.execute_every(3013, self._auto_part)
+        self.reactor.scheduler.execute_every(62, self._touch_privilege)
+        self.reactor.scheduler.execute_every(7201, self._auto_join_channels)
+        self.reactor.scheduler.execute_every(61, self._auto_priv)
+        self.reactor.scheduler.execute_every(3013, self._auto_part)
 
     def get_version(self):
         # Remove bot from string in case server does not like bots ;)
