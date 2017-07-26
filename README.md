@@ -1,7 +1,7 @@
 # PleaseOpMe
-Auto Op module for Willie IRC bot.
+Auto Op bot for IRC.
 
-Inspired by EFnet's CHANFIX, this module attempts to keep operator or voice mode to users in the channel.
+Inspired by EFnet's CHANFIX, this bot attempts to keep operator or voice mode to users in the channel.
 
 
 Install
@@ -10,24 +10,18 @@ Install
 Requires:
 
 * Python 3+
-* Willie 5
-* SQLAlchemy
+* IRC module 16.0
+* SQLAlchemy module
 
 Install Python, then use pip to install the Python libraries:
 
-        pip3 install --user willie sqlalchemy
+        pip3 install --user irc sqlalchemy
 
-Set up Willie by running:
+Then, set up the bot by editing the sample configuration file and run it:
 
-        ~/.local/bin/willie --configure-all
+        python3 pleaseopme.py my_config_file.ini
 
-Since an op bot should not be using extra features, just answer no to configuring the built-in Willie bot modules. `owner` and `admin` settings should use IRC hostmasks instead of just nicknames. (You can also leave them blank and use PleaseOpMe's password-based authentication.)
-
-Add the PleaseOpMe module by copying or symlinking `pleaseopme.py` into the `~/.willie/modules/` (or wherever the configuration is located).
-
-To use only PleaseOpMe and disable all other Willie features, add `enable = pleaseopme` under `[core]` in the `default.cfg` file.
-
-Rerun the configuration wizard and say yes to configure the modules to answer the PleaseOpMe settings.
+Note: This script was formerly a Willie Bot module. It is now a standalone script for stability reasons. You may still use the older versions by navigating to the older branch in the Git repository. 
 
 
 Usage
@@ -38,7 +32,7 @@ To get the bot to join a channel, use the `/invite` command.
 The bot will monitor active users with operator (@) or voice (+) and give them back when they rejoin if they fit the criteria. The user must 
 
 * have the same hostmask (same nick, user, and host),
-* have said (or `/me`) something so the bot knows the user's hostmask if the bot has not done a WHOIS query on the user yet,
+* have said (or `/me`) something so the bot knows the user's hostmask if the bot has not done a WHOIS/WHO query on the user yet,
 * have op or voice for at least 60 seconds,
 * and be back in the channel within 24 hours.
 
@@ -68,4 +62,4 @@ Tips
 
 * The bot may occasionally need to be restarted due to bugs or updates. Run at least two bots with each on different servers and connected to a different IRC server.
 * Start the bot with a daemon system such as Upstart or Systemd and configure it to restart if the bot dies (with appropriate restart intervals if applicable).
-* If the daemon system supports restarting, use the `exit_on_error` config option so the bot is freshly started on a new process to avoid any lingering bugs.
+* If the daemon system supports delays, include a delay of about 45 to 60 seconds to avoid flooding the server. Otherwise, use the sleep command as part of the start up script.

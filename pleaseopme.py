@@ -1,38 +1,50 @@
-'''Auto Op module for Willie IRC bot.'''
-# Copyright 2015 Christopher Foo <chris.foo@gmail.com>. License GPLv3.
-
+"""PleaseOpMe: Auto Op bot for IRC."""
+# Copyright 2015-2017 Christopher Foo <chris.foo@gmail.com>. License GPLv3.
+import configparser
 import contextlib
 import datetime
+import enum
 import logging
-import os
 import re
+import ssl
 import time
-import random
 import threading
+import argparse
 
 from sqlalchemy import Column, String, DateTime, create_engine, delete, \
     insert, update, Enum, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql.functions import count
-from willie.config import ConfigurationError
 import sqlalchemy.event
-import willie.module
-import willie.tools
+import irc.bot
+import irc.client
+import irc.strings
+from irc.client import ServerConnection, Event
+import irc.connection
+import irc.modes
 
 
-__version__ = '1.5.5'
+__version__ = '2.0.0'
 _logger = logging.getLogger(__name__)
 
 
-PRIVILEGE_LEVELS = (willie.module.OP, willie.module.VOICE)
+class PrivilegeLevel(enum.IntEnum):
+    VOICE = 1
+    HALFOP = 2
+    OP = 4
+    ADMIN = 8
+    OWNER = 16
+
+
+MONITORED_PRIVILEGE_LEVELS = (PrivilegeLevel.OP, PrivilegeLevel.VOICE)
 
 STR_TO_PRIV_MAP = {
-    'v': willie.module.VOICE,
-    'h': willie.module.HALFOP,
-    'o': willie.module.OP,
-    'a': willie.module.ADMIN,
-    'q': willie.module.OWNER
+    'v': PrivilegeLevel.VOICE,
+    'h': PrivilegeLevel.HALFOP,
+    'o': PrivilegeLevel.OP,
+    'a': PrivilegeLevel.ADMIN,
+    'q': PrivilegeLevel.OWNER
 }
 PRIV_TO_STR_MAP = dict((value, key) for key, value in STR_TO_PRIV_MAP.items())
 
@@ -40,25 +52,25 @@ DBBase = declarative_base()
 
 
 class AdminAuth(object):
-    '''Authentication table.
+    """Authentication table.
 
     Keeps track of authenticated users sudo-style by expiring after a few
     minutes.
-    '''
+    """
     def __init__(self, cache_time=300):
         self._cache_time = cache_time
         self._name_map = {}
         self._lock = threading.Lock()
 
     def add(self, name):
-        '''Add an authenticated name to the table.'''
+        """Add an authenticated name to the table."""
         _logger.info('Authenticated %s.', name)
 
         with self._lock:
             self._name_map[name] = datetime.datetime.utcnow()
 
     def remove(self, name):
-        '''Remove an authenticated name.'''
+        """Remove an authenticated name."""
         with self._lock:
             value = self._name_map.pop(name, None)
 
@@ -66,7 +78,7 @@ class AdminAuth(object):
             _logger.info('Remove authenticated %s.', name)
 
     def check(self, name):
-        '''Return whether the name is not expired.'''
+        """Return whether the name is not expired."""
         with self._lock:
             if name in self._name_map:
                 datetime_now = datetime.datetime.utcnow()
@@ -78,7 +90,7 @@ class AdminAuth(object):
                 return False
 
     def clean(self):
-        '''Remove expired entries.'''
+        """Remove expired entries."""
         _logger.debug('Clean authenticated.')
         datetime_now = datetime.datetime.utcnow()
 
@@ -122,7 +134,7 @@ class BaseDatabase(object):
 
     @classmethod
     def _apply_pragmas_callback(cls, connection, record):
-        '''Set SQLite pragmas.'''
+        """Set SQLite pragmas."""
         connection.execute('PRAGMA synchronous=NORMAL')
 
     @property
@@ -145,7 +157,7 @@ class BaseDatabase(object):
 
 
 class PrivilegeTracker(BaseDatabase):
-    '''Track ops and voices.'''
+    """Track ops and voices."""
     def __init__(self, db_path, max_absent_time=86400, min_priv_time=300):
         super().__init__(db_path)
         self._max_absent_time = max_absent_time
@@ -153,7 +165,7 @@ class PrivilegeTracker(BaseDatabase):
         self._lock = threading.Lock()
 
     def clean(self):
-        '''Remove old entries.'''
+        """Remove old entries."""
         _logger.debug('Clean privileges.')
         time_ago = datetime.datetime.utcfromtimestamp(
             time.time() - self._max_absent_time
@@ -165,7 +177,7 @@ class PrivilegeTracker(BaseDatabase):
             session.execute(query)
 
     def grant(self, channel, nickname, hostmask, level):
-        '''Add privilege for user.'''
+        """Add privilege for user."""
         self._try_insert(channel, nickname, hostmask, level)
         self._upgrade_level(channel, nickname, hostmask, level)
 
@@ -218,7 +230,7 @@ class PrivilegeTracker(BaseDatabase):
                 )
 
     def revoke(self, channel, nickname):
-        '''Remove privilege for user.'''
+        """Remove privilege for user."""
         _logger.info(
             'Revoke privilege from channel=%s nickname=%s',
             channel, nickname
@@ -231,7 +243,7 @@ class PrivilegeTracker(BaseDatabase):
             session.execute(query)
 
     def revoke_all(self, channel):
-        '''Remove privileges for channel.'''
+        """Remove privileges for channel."""
         _logger.info(
             'Revoke privilege from channel=%s',
             channel
@@ -243,7 +255,7 @@ class PrivilegeTracker(BaseDatabase):
             session.execute(query)
 
     def touch(self, channel, nickname, hostmask, level):
-        '''Update privilege for user.'''
+        """Update privilege for user."""
 
         self._try_insert(channel, nickname, hostmask, level)
         self._upgrade_level(channel, nickname, hostmask, level)
@@ -262,7 +274,7 @@ class PrivilegeTracker(BaseDatabase):
             )
 
     def get_privileged(self, channel, level):
-        '''Return privileged list of nickname & hostmask pairs.'''
+        """Return privileged list of nickname & hostmask pairs."""
         with self._lock, self._session() as session:
             touch_ago = datetime.datetime.utcfromtimestamp(
                 time.time() - self._max_absent_time
@@ -284,7 +296,7 @@ class PrivilegeTracker(BaseDatabase):
 
 
 class ChannelTracker(BaseDatabase):
-    '''Track channels for auto join.'''
+    """Track channels for auto join."""
 
     MAX_OPLESS_TIME = 86400 * 2
 
@@ -336,7 +348,7 @@ class ChannelTracker(BaseDatabase):
 
 
 class HostmaskMap(dict):
-    '''Track nicknames to hostmasks.'''
+    """Track nicknames to hostmasks."""
     def add(self, nickname, hostmask):
         _logger.debug('Map %s to %s', nickname, hostmask)
 
@@ -359,450 +371,408 @@ class HostmaskMap(dict):
                 pass
 
 
-_admin_auth = None
-_priv_tracker = None
-_hostmask_map = None
-_channel_tracker = None
+class Bot(irc.bot.SingleServerIRCBot):
+    def __init__(self, config: configparser.ConfigParser):
+        server = config['irc']['server']
+        port = config['irc'].getint('port')
+        use_ssl = config['irc'].getboolean('use_ssl')
+        nickname = config['irc']['nickname']
+        realname = config['irc']['realname']
 
-
-def configure(config):
-    if not config.option('Configure PleaseOpMe'):
-        return
-
-    config.interactive_add(
-        'pleaseopme', 'db_path',
-        'PleaseOpMe: Database filename',
-        default=os.path.abspath(os.path.expanduser('~/.willie/pleaseopme.db'))
-    )
-    config.interactive_add(
-        'pleaseopme', 'admin_password',
-        'PleaseOpMe: Admin password (leave blank to disable)', ispass=True
-    )
-    config.add_list(
-        'pleaseopme', 'whitelist',
-        'PleaseOpMe: Whitelisted channels (leave blank to allow all)', 'Channel'
-    )
-    config.add_option(
-        'pleaseopme', 'logging', 'PleaseOpMe: Enable log output'
-    )
-    config.add_option(
-        'pleaseopme', 'reply_help', 'PleaseOpMe: Reply to help command'
-    )
-    config.add_option(
-        'pleaseopme', 'auto_join',
-        'PleaseOpMe: Remember and auto join channels on start'
-    )
-    config.add_option(
-        'pleaseopme', 'auto_part',
-        'PleaseOpMe: Automatically part channels if not op for 2 days'
-    )
-    config.add_option(
-        'pleaseopme', 'max_channels',
-        'PleaseOpMe: Maximum number of channels'
-    )
-
-
-def setup(bot):
-    global _admin_auth
-    global _priv_tracker
-    global _hostmask_map
-    global _channel_tracker
-
-    if not bot.config.pleaseopme.db_path:
-        raise ConfigurationError('Option "db_path" is required.')
-
-    if bot.config.pleaseopme.logging:
-        logging.basicConfig(level=logging.INFO)
-
-    _admin_auth = AdminAuth()
-    _priv_tracker = PrivilegeTracker(bot.config.pleaseopme.db_path)
-    _channel_tracker = ChannelTracker(bot.config.pleaseopme.db_path)
-    _hostmask_map = HostmaskMap()
-
-
-@willie.module.rate(10)
-@willie.module.event('INVITE')
-@willie.module.rule(r'.*')
-def join_on_invite(bot, trigger):
-    channel = trigger.args[1]
-    whitelisted_channels = bot.config.pleaseopme.get_list('whitelist')
-    try:
-        max_channels = int(bot.config.pleaseopme.max_channels)
-    except (TypeError, ValueError):
-        max_channels = None
-
-    if not whitelisted_channels or channel in whitelisted_channels:
-        current_num_channels = _channel_tracker.count()
-        if max_channels and current_num_channels >= max_channels:
-            bot.reply('Too many channels.')
+        if use_ssl:
+            connect_factory = irc.connection.Factory(wrapper=ssl.wrap_socket)
         else:
-            _logger.info('Join channel %s by %s', channel, trigger.nick)
-            bot.reply('Joining channel {0}'.format(channel))
-            bot.join(channel)
-            _channel_tracker.add(channel.lower())
-    else:
-        bot.reply('Channel is not whitelisted.')
+            connect_factory = irc.connection.Factory()
 
-
-def validate_channel_name(name):
-    match = re.match(r'[&#+!][^ ,\x07]{1,50}$', name)
-
-    if match:
-        return name
-
-
-@willie.module.require_privmsg()
-@willie.module.rule('(help|commands|info)')
-def reply_help(bot, trigger):
-    if bot.config.pleaseopme.reply_help:
-        bot.say("I'm Willie bot with PleaseOpMe module.")
-
-
-@willie.module.rate(10)
-@willie.module.require_privmsg()
-@willie.module.rule(r'(auth)\s+(.*)')
-def auth_as_admin(bot, trigger):
-    password = trigger.match.group(2)
-
-    if not bot.config.pleaseopme.admin_password:
-        bot.say('Password not configured.')
-    elif password == bot.config.pleaseopme.admin_password:
-        _admin_auth.add(lower_hostmask(trigger.hostmask))
-        bot.say('OK.')
-    else:
-        _admin_auth.remove(lower_hostmask(trigger.hostmask))
-        bot.say('Invalid password.')
-
-
-def check_is_admin(bot, trigger):
-    if trigger.admin:
-        return True
-
-    if _admin_auth.check(lower_hostmask(trigger.hostmask)):
-        return True
-
-
-@willie.module.require_privmsg()
-@willie.module.rule(r'(part)\s+(.*)')
-def admin_part(bot, trigger):
-    if not check_is_admin(bot, trigger):
-        bot.say('Denied.')
-        return
-
-    channel = trigger.match.group(2)
-    channel = validate_channel_name(channel)
-
-    if not channel:
-        bot.say('Huh? Is that a channel?')
-        return
-
-    _logger.info('Part channel %s by %s', channel, trigger.nick)
-    bot.say('Parting channel {}'.format(channel))
-    bot.part(channel)
-    _channel_tracker.remove(channel.lower())
-
-
-@willie.module.require_privmsg()
-@willie.module.rule(r'channels')
-def admin_channels(bot, trigger):
-    if not check_is_admin(bot, trigger):
-        bot.say('Denied.')
-        return
-
-    bot.say(' '.join(bot.privileges.keys()))
-
-
-@willie.module.nickname_commands('op')
-def manual_op(bot, trigger):
-    if not check_is_admin(bot, trigger):
-        bot.reply('Denied.')
-        return
-
-    channel = trigger.sender
-
-    if bot.privileges[trigger.sender][bot.nick] < willie.module.OP:
-        bot.reply("I don't have ops.")
-        return
-
-    _logger.info('Op %s %s', channel, trigger.nick)
-    bot.write(['MODE', channel, '+o', trigger.nick])
-
-
-@willie.module.nickname_commands('revokeall')
-def manual_revoke_all(bot, trigger):
-    channel = trigger.sender
-
-    if bot.privileges[channel][trigger.nick] & willie.module.OP:
-        _logger.info('Revoke all %s %s', channel, trigger.nick)
-        _priv_tracker.revoke_all(channel.lower())
-        bot.reply('OK.')
-    else:
-        bot.reply('Denied.')
-
-
-@willie.module.rule(r'.*')
-@willie.module.event('NICK')
-@willie.module.priority('high')
-@willie.module.unblockable
-def rename_nick(bot, trigger):
-    old = trigger.nick
-    new = willie.tools.Identifier(trigger)
-
-    _admin_auth.remove(old.lower())
-    _admin_auth.remove(new.lower())
-    _hostmask_map.remove(old.lower())
-    _hostmask_map.remove(new.lower())
-
-
-@willie.module.rule(r'.*')
-@willie.module.event('QUIT')
-@willie.module.priority('high')
-@willie.module.unblockable
-def remove_nick_quit(bot, trigger):
-    _admin_auth.remove(trigger.nick.lower())
-    _hostmask_map.remove(trigger.nick.lower())
-
-
-@willie.module.rule(r'.*')
-@willie.module.event('KICK')
-@willie.module.priority('high')
-@willie.module.unblockable
-def track_kick(bot, trigger):
-    nick = willie.tools.Identifier(trigger.args[1])
-
-    _admin_auth.remove(nick.lower())
-    _priv_tracker.revoke(trigger.sender.lower(), nick.lower())
-    _hostmask_map.remove(nick.lower())
-    _channel_tracker.remove(trigger.sender.lower())
-
-
-@willie.module.rule(r'.*')
-@willie.module.event('MODE')
-@willie.module.priority('high')
-@willie.module.unblockable
-def channel_nick_mode_change(bot, trigger):
-    # Logic mostly copied from willie/coretasks.py
-    channel = willie.tools.Identifier(trigger.args[0])
-    line = trigger.args[1:]
-
-    if channel.is_nick():
-        return
-
-    modes = None
-    nicks = []
-
-    for arg in line:
-        if not arg:
-            continue
-
-        if arg[0] in '+-':
-            sign = ''
-            modes = []
-
-            for char in arg:
-                if char == '+' or char == '-':
-                    sign = char
-                else:
-                    modes.append((sign, char))
-
-        elif modes:
-            nick = willie.tools.Identifier(arg)
-            nicks.append(nick)
-
-    if len(modes) != len(nicks):
-        return
-
-    for index in range(len(modes)):
-        sign, mode = modes[index]
-        nick = nicks[index]
-
-        if sign == '-':
-            _priv_tracker.revoke(channel.lower(), nick.lower())
-        elif sign == '+':
-            priv_level = STR_TO_PRIV_MAP.get(mode)
-            hostmask = _hostmask_map.get(nick.lower())
-
-            if hostmask and priv_level in PRIVILEGE_LEVELS:
-                _logger.info('%s gives %s (level %s) in %s',
-                    trigger.nick, mode, priv_level, channel
-                )
-                _priv_tracker.grant(
-                    channel.lower(), nick.lower(), hostmask, priv_level
-                )
-
-
-@willie.module.rule(r'.*')
-@willie.module.event('JOIN', 'PRIVMSG', 'NOTICE', 'INVITE', 'MODE')
-@willie.module.unblockable
-def update_nick_hostmask(bot, trigger):
-    if trigger.nick.is_nick():
-        _hostmask_map.add(
-            trigger.nick.lower(), lower_hostmask(trigger.hostmask)
+        super().__init__(
+            [(server, port)],
+            nickname, realname,
+            connect_factory=connect_factory
         )
 
+        self._config = config
+        self._admin_auth = AdminAuth()
+        self._priv_tracker = PrivilegeTracker(config['pleaseopme']['db_path'])
+        self._channel_tracker = ChannelTracker(config['pleaseopme']['db_path'])
+        self._hostmask_map = HostmaskMap()
 
-@willie.module.rule(r'.*')
-@willie.module.event('311')
-@willie.module.unblockable
-def update_whois_hostmask(bot, trigger):
-    nick, user, host = trigger.args[1:4]
-    nick_identifer = willie.tools.Identifier(nick)
+        self.connection.set_rate_limit(0.5)
 
-    hostmask = '{0}!{1}@{2}'.format(nick_identifer.lower(), user, host)
-    _logger.debug('Add hostmask %s %s', nick, hostmask)
-    _hostmask_map.add(nick_identifer.lower(), hostmask)
+        self.connection.execute_every(62, self._touch_privilege)
+        self.connection.execute_every(7201, self._auto_join_channels)
+        self.connection.execute_every(61, self._auto_priv)
+        self.connection.execute_every(3013, self._auto_part)
 
+    def on_invite(self, connection: ServerConnection, event: Event):
+        if not isinstance(event.source, irc.client.NickMask):
+            return
 
-_nicks_pending_whois = set()
-_last_pending_nicks_clear = time.time()
+        nick = event.source.nick
+        channel = event.arguments[0]
 
-@willie.module.interval(13)
-def whois_unknown(bot):
-    global _last_pending_nicks_clear
+        _logger.info('Received invite from %s to %s', nick, channel)
 
-    if time.time() - _last_pending_nicks_clear > 301:
-        _last_pending_nicks_clear = time.time()
-        _nicks_pending_whois.clear()
+        whitelisted_channels = split_list_option(self._config['pleaseopme']['whitelist'])
+        max_channels = self._config['pleaseopme'].getint('max_channels', None)
 
-    channels = list(bot.privileges.keys())
-    random.shuffle(channels)
+        if not whitelisted_channels or channel in whitelisted_channels:
+            current_num_channels = self._channel_tracker.count()
+            if max_channels and current_num_channels >= max_channels:
+                connection.privmsg(nick, 'Too many channels.')
+            else:
+                _logger.info('Join channel %s by %s', channel, nick)
+                connection.privmsg(nick, 'Joining channel {0}'.format(channel))
+                connection.join(channel)
+                connection.who(channel)
+                self._channel_tracker.add(irc.strings.lower(channel))
+        else:
+            connection.privmsg(nick, 'Channel is not whitelisted.')
 
-    for channel in channels:
-        nicks = list(bot.privileges[channel].keys())
-        random.shuffle(nicks)
+    @classmethod
+    def validate_channel_name(cls, name) -> bool:
+        match = re.match(r'[&#+!][^ ,\x07]{1,50}$', name)
 
-        for nick in nicks:
-            nick_lowered = nick.lower()
-            if not _hostmask_map.get(nick_lowered) and \
-                    nick_lowered not in _nicks_pending_whois:
-                _nicks_pending_whois.add(nick_lowered)
-                bot.write(('WHOIS', nick))
+        return bool(match)
+
+    def on_privmsg(self, connection: ServerConnection, event: Event):
+        if not isinstance(event.source, irc.client.NickMask):
+            return
+
+        nick = irc.strings.lower(event.source.nick)
+        text = event.arguments[0]
+        hostmask = self.lower_hostmask(event.source)
+
+        def reply(message: str):
+            connection.privmsg(nick, message)
+
+        if re.match(r'help|commands|info', text):
+            if self._config['pleaseopme'].getboolean('reply_help'):
+                help_text = self._config['pleaseopme']['help_text']
+                reply(help_text)
+
+        elif re.match(r'auth\s(.+)', text):
+            match = re.match(r'auth\s(.+)', text)
+            password = match.group(1)
+            admin_password = self._config['pleaseopme']['admin_password']
+
+            if not admin_password:
+                reply('Password not configured.')
+            elif password == admin_password:
+                self._admin_auth.add(hostmask)
+                reply('OK.')
+            else:
+                self._admin_auth.remove(hostmask)
+                reply('Invalid password.')
+
+        elif re.match(r'part\s+(.*)', text):
+            if not self.check_is_admin(hostmask):
+                reply('Unauthorized.')
                 return
 
+            match = re.match(r'part\s+(.*)', text)
+            channel = irc.strings.lower(match.group(1))
 
-@willie.module.interval(63)
-def touch_privilege(bot):
-    _priv_tracker.clean()
+            if not self.validate_channel_name(channel):
+                reply('Huh? Is that a channel?')
+                return
 
-    # The bot library is a mess when it comes to threading :P
-    for channel in list(bot.privileges.keys()):
-        if channel not in bot.privileges:
-            continue
+            _logger.info('Part channel %s by %s', channel, nick)
+            reply('Parting channel {}'.format(channel))
+            connection.part(channel)
+            self._channel_tracker.remove(channel.lower())
 
-        for nick in list(bot.privileges[channel].keys()):
-            try:
-                priv_flags = bot.privileges[channel][nick]
-            except KeyError:
-                continue
+        elif text == "channels":
+            if not self.check_is_admin(hostmask):
+                reply('Unauthorized.')
+                return
 
-            hostmask = _hostmask_map.get(nick)
+            reply(' '.join(self.channels.keys()))
 
-            if not hostmask:
-                continue
+    def check_is_admin(self, hostmask: str) -> bool:
+        if self._admin_auth.check(hostmask):
+            return True
 
-            for priv_level in PRIVILEGE_LEVELS:
-                if priv_level & priv_flags:
-                    _priv_tracker.touch(
-                        channel.lower(), nick.lower(), hostmask, priv_level
+    def on_pubmsg(self, connection: ServerConnection, event: Event):
+        if not isinstance(event.source, irc.client.NickMask):
+            return
+
+        if not irc.client.is_channel(event.target):
+            return
+
+        self._update_nick_hostmask(event)
+
+        nick = irc.strings.lower(event.source.nick)
+        text = event.arguments[0]
+        channel = irc.strings.lower(event.target)
+        hostmask = self.lower_hostmask(event.source)
+
+        def reply(message: str):
+            connection.privmsg(channel, '{}: {}'.format(nick, message))
+
+        command = None
+        match = re.match(
+            r'{}[:,]\s(\S+)'.format(re.escape(connection.get_nickname())),
+            text
+        )
+
+        if match:
+            command = match.group(1)
+
+        if command == 'op':
+            if not self.check_is_admin(hostmask):
+                reply('Unauthorized.')
+                return
+
+            if not self.channels[channel].is_oper(connection.get_nickname()):
+                reply("I don't have ops.")
+                return
+
+            _logger.info('Op %s %s', channel, nick)
+            connection.mode(channel, '+o {}'.format(nick))
+
+        elif command == "revokeall":
+            if self.channels[channel].is_oper(connection.get_nickname()):
+                _logger.info('Revoke all %s %s', channel, nick)
+                self._priv_tracker.revoke_all(channel.lower())
+                reply('OK.')
+            else:
+                reply('Unauthorized.')
+
+    def on_nick(self, connection: ServerConnection, event: Event):
+        old = irc.strings.lower(event.source.nick)
+        new = irc.strings.lower(event.target)
+
+        _logger.debug('nick %s->%s', old, new)
+
+        self._admin_auth.remove(old)
+        self._admin_auth.remove(new)
+        self._hostmask_map.remove(old)
+        self._hostmask_map.remove(new)
+
+    def on_quit(self, connection: ServerConnection, event: Event):
+        nick = irc.strings.lower(event.source.nick)
+
+        _logger.debug('quit %s', nick)
+
+        self._admin_auth.remove(nick)
+        self._hostmask_map.remove(nick)
+
+    def on_kick(self, connection: ServerConnection, event: Event):
+        channel = irc.strings.lower(event.target)
+        nick = irc.strings.lower(event.arguments[0])
+
+        _logger.debug('kicked %s from %s', nick, channel)
+
+        self._admin_auth.remove(nick)
+        self._priv_tracker.revoke(channel, nick)
+        self._hostmask_map.remove(nick)
+        self._channel_tracker.remove(channel)
+
+    def on_mode(self, connection: ServerConnection, event: Event):
+        # copied from irc.bot
+        modes = irc.modes.parse_channel_modes(" ".join(event.arguments))
+        target = irc.strings.lower(event.target)
+        if irc.client.is_channel(target):
+            channel = self.channels[target]
+            for mode in modes:
+                nick = irc.strings.lower(mode[2])
+                if mode[0] == "+":
+                    pass
+                else:
+                    self._priv_tracker.revoke(target, nick)
+
+    def on_join(self, connection: ServerConnection, event: Event):
+        self._update_nick_hostmask(event)
+
+    def _update_nick_hostmask(self, event: Event):
+        if not isinstance(event.source, irc.client.NickMask):
+            return
+
+        hostmask = self.lower_hostmask(event.source)
+
+        _logger.debug('Update hostmask %s', hostmask)
+
+        self._hostmask_map.add(
+            hostmask.nick, hostmask
+        )
+
+    def on_whoisuser(self, connection: ServerConnection, event: Event):
+        nick, user, host = event.arguments
+        nick = irc.strings.lower(nick)
+        hostmask = '{0}!{1}@{2}'.format(nick, user, host)
+
+        _logger.debug('Add hostmask %s %s', nick, hostmask)
+        self._hostmask_map.add(nick, hostmask)
+
+    def on_whoreply(self, connection: ServerConnection, event: Event):
+        channel, user, host, server, nick, *others = event.arguments
+        nick = irc.strings.lower(nick)
+        hostmask = '{0}!{1}@{2}'.format(nick, user, host)
+
+        _logger.debug('Add hostmask %s %s', nick, hostmask)
+        self._hostmask_map.add(nick, hostmask)
+
+    def _touch_privilege(self):
+        self._priv_tracker.clean()
+
+        if not self.connection.is_connected():
+            return
+
+        for channel in self.channels.keys():
+            for nick in self.channels[channel].users():
+                priv_flags = self.populate_user_priv_flags(self.channels[channel], nick)
+                nick = irc.strings.lower(nick)
+                hostmask = self._hostmask_map.get(nick)
+
+                if not hostmask:
+                    continue
+
+                for priv_level in MONITORED_PRIVILEGE_LEVELS:
+                    if priv_level & priv_flags:
+                        self._priv_tracker.touch(
+                            channel.lower(), nick.lower(), hostmask, priv_level
+                        )
+                        continue
+
+    @classmethod
+    def populate_user_priv_flags(cls, channel: irc.bot.Channel, nick: str) -> int:
+        priv_flags = 0
+
+        if channel.is_oper(nick):
+            priv_flags |= PrivilegeLevel.OP
+
+        if channel.is_voiced(nick):
+            priv_flags |= PrivilegeLevel.VOICE
+
+        return priv_flags
+
+    def on_welcome(self, connection: ServerConnection, event: Event):
+        _logger.info('Logged into server')
+        self._auto_join_channels()
+
+    def on_disconnect(self, connection: ServerConnection, event: Event):
+        _logger.info('Disconnected!')
+
+    def _auto_join_channels(self):
+        if not self._config['pleaseopme'].getboolean('auto_join', False):
+            return
+
+        if not self.connection.is_connected():
+            return
+
+        whitelisted_channels = split_list_option(self._config['pleaseopme']['whitelist'])
+
+        pending_channels = []
+
+        for channel in self._channel_tracker.get_all():
+            if not whitelisted_channels or channel in whitelisted_channels:
+                if channel in self.channels:
+                    continue
+                pending_channels.append(channel)
+
+        while pending_channels:
+            channel_group = []
+
+            for dummy in range(10):
+                if pending_channels:
+                    channel_group.append(pending_channels.pop())
+
+            group_str = ','.join(channel_group)
+            _logger.info('Auto join %s', group_str)
+            self.connection.join(group_str)
+
+            for channel in channel_group:
+                # Avoid blocking
+                self.connection.execute_delayed(1, self.connection.who, (channel,))
+
+    def _auto_priv(self):
+        def check_and_change_channel(channel: str):
+            for level in MONITORED_PRIVILEGE_LEVELS:
+                tracked = tuple(self._priv_tracker.get_privileged(channel, level))
+
+                _logger.debug('Tracked %s', tracked)
+
+                for nick, tracked_hostmask in tracked:
+                    if not self.channels[channel].has_user(nick):
+                        continue
+
+                    nick = irc.strings.lower(nick)
+
+                    current_nick_priv_flags = self.populate_user_priv_flags(self.channels[channel], nick)
+                    mode = PRIV_TO_STR_MAP.get(level)
+                    current_nick_hostmask = self._hostmask_map.get(nick)
+
+                    _logger.debug(
+                        'Checking channel=%s nick=%s hostmask=%s '
+                        'flags=%s candidate=%s',
+                        channel, nick, current_nick_hostmask,
+                        current_nick_priv_flags, mode
                     )
-                    continue
 
+                    if not current_nick_priv_flags & level and mode \
+                            and current_nick_hostmask == tracked_hostmask:
+                        _logger.info('Auto mode %s %s %s', channel, nick, mode)
+                        self.connection.mode(channel, '+{} {}'.format(mode, nick))
+                        return  # change modes slowly one at a time
 
-_auto_join_lock = threading.Lock()
+        for channel in self.channels.keys():
+            if not self.channels[channel].is_oper(self.connection.get_nickname()):
+                _logger.debug('Not op in %s', channel)
+            else:
+                _logger.debug('Checking for auto priv in %s', channel)
+                check_and_change_channel(channel)
 
-@willie.module.event('001', '251')
-@willie.module.interval(7201)
-@willie.module.rule(r'.*')
-@willie.module.unblockable
-def auto_join(bot, trigger=None):
-    if not bot.config.pleaseopme.auto_join:
-        return
+    def _auto_part(self):
+        if not self._config['pleaseopme'].getboolean('auto_part'):
+            return
 
-    whitelisted_channels = bot.config.pleaseopme.get_list('whitelist')
+        if not self.connection.is_connected():
+            return
 
-    for channel in _channel_tracker.get_all():
-        if not whitelisted_channels or channel in whitelisted_channels:
-            with _auto_join_lock:
-                if channel in bot.privileges:
-                    continue
+        for channel in self.channels.keys():
+            channel = irc.strings.lower(channel)
 
-                _logger.info('Auto join %s', channel)
-                bot.join(channel)
-                time.sleep(5)
+            if self.channels[channel].is_oper(self.connection.get_nickname()):
+                self._channel_tracker.touch_op(channel)
+            elif self._channel_tracker.opless_time(channel) > ChannelTracker.MAX_OPLESS_TIME:
+                _logger.info('Auto part %s', channel)
+                self.connection.part(channel)
+                self._channel_tracker.remove(channel)
 
+    @classmethod
+    def lower_hostmask(cls, hostmask: str) -> irc.client.NickMask:
+        if '!' in hostmask:
+            nick, rest = hostmask.split('!', 1)
 
-@willie.module.interval(61)
-def auto_priv(bot):
-    def check_and_change_channel(channel):
-        for level in PRIVILEGE_LEVELS:
-            tracked = tuple(_priv_tracker.get_privileged(channel, level))
-
-            _logger.debug('%s', tracked)
-
-            for nick, tracked_hostmask in tracked:
-                if nick not in bot.privileges[channel]:
-                    continue
-
-                current_nick_priv_flags = bot.privileges[channel][nick]
-                mode = PRIV_TO_STR_MAP.get(level)
-                current_nick_hostmask = _hostmask_map.get(nick.lower())
-
-                _logger.debug(
-                    'Checking channel=%s nick=%s hostmask=%s '
-                    'flags=%s candidate=%s',
-                    channel, nick, current_nick_hostmask,
-                    current_nick_priv_flags, mode
-                )
-
-                if not current_nick_priv_flags & level and mode \
-                        and current_nick_hostmask == tracked_hostmask:
-                    _logger.info('Auto mode %s %s %s', channel, nick, mode)
-                    bot.write(['MODE', channel, '+{0}'.format(mode), nick])
-                    time.sleep(1)
-                    return  # change modes slowly one at a time
-
-    for channel in bot.privileges:
-        # Threading issues :P
-        try:
-            priv_level = bot.privileges[channel][bot.nick]
-        except KeyError:
-            continue
-
-        if priv_level < willie.module.OP:
-            _logger.debug('Not op in %s', channel)
+            hostmask = '{0}!{1}'.format(irc.strings.lower(nick), rest)
+            return irc.client.NickMask(hostmask)
         else:
-            check_and_change_channel(channel)
+            return irc.client.NickMask(hostmask)
 
 
-@willie.module.interval(3013)
-def auto_part(bot):
-    if not bot.config.pleaseopme.auto_part:
-        return
-
-    for channel in list(bot.privileges.keys()):
-        # Threading issues :P
-        try:
-            priv_level = bot.privileges[channel][bot.nick]
-        except KeyError:
-            continue
-
-        channel = channel.lower()
-
-        if priv_level & willie.module.OP:
-            _channel_tracker.touch_op(channel)
-        elif _channel_tracker.opless_time(channel) > ChannelTracker.MAX_OPLESS_TIME:
-            _logger.info('Auto part %s', channel)
-            bot.part(channel)
-            _channel_tracker.remove(channel)
-            time.sleep(2)
-
-
-def lower_hostmask(hostmask):
-    if '!' in hostmask:
-        nick, rest = hostmask.split('!', 1)
-        nick_identifer = willie.tools.Identifier(nick)
-
-        hostmask = '{0}!{1}'.format(nick_identifer.lower(), rest)
-        return hostmask
+def split_list_option(option: str) -> list:
+    if option:
+        return option.split(',')
     else:
-        return hostmask
+        return []
+
+
+def main():
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument('config', help='Filename of config file')
+    args = arg_parser.parse_args()
+
+    config = configparser.ConfigParser()
+    config.read([args.config])
+
+    if config['pleaseopme'].getboolean("logging"):
+        if config['pleaseopme'].getboolean("debug"):
+            logging.basicConfig(level=logging.DEBUG)
+        else:
+            logging.basicConfig(level=logging.INFO)
+
+    bot = Bot(config)
+    bot.start()
+
+if __name__ == '__main__':
+    main()
