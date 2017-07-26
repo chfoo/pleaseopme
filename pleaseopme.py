@@ -379,6 +379,7 @@ class Bot(irc.bot.SingleServerIRCBot):
         use_ssl = config['irc'].getboolean('use_ssl')
         nickname = config['irc']['nickname']
         realname = config['irc']['realname']
+        username = config['irc']['username']
 
         if use_ssl:
             connect_factory = irc.connection.Factory(wrapper=ssl.wrap_socket)
@@ -387,7 +388,7 @@ class Bot(irc.bot.SingleServerIRCBot):
 
         super().__init__(
             [(server, port)],
-            nickname, realname,
+            nickname, realname, username=username,
             connect_factory=connect_factory
         )
 
