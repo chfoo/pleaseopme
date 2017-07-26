@@ -403,6 +403,13 @@ class Bot(irc.bot.SingleServerIRCBot):
         self.connection.execute_every(61, self._auto_priv)
         self.connection.execute_every(3013, self._auto_part)
 
+    def get_version(self):
+        # Remove bot from string in case server does not like bots ;)
+        return 'PleaseOpMe ({}) {}'.format(
+            __version__,
+            super().get_version().replace('.bot', '')
+        )
+
     def on_invite(self, connection: ServerConnection, event: Event):
         if not isinstance(event.source, irc.client.NickMask):
             return
