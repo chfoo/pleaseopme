@@ -690,7 +690,7 @@ class Bot(irc.bot.SingleServerIRCBot):
 
             for channel in channel_group:
                 # Avoid blocking
-                self.connection.execute_delayed(1, self.connection.who, (channel,))
+                self.reactor.scheduler.execute_delayed(1, self.connection.who, (channel,))
 
     def _auto_priv(self):
         def check_and_change_channel(channel: str):
