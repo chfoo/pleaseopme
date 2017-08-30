@@ -26,7 +26,7 @@ import irc.connection
 import irc.modes
 
 
-__version__ = '2.0.0'
+__version__ = '2.0.1b1'
 _logger = logging.getLogger(__name__)
 
 
@@ -417,11 +417,12 @@ class Bot(irc.bot.SingleServerIRCBot):
             return
 
         nick = event.source.nick
-        channel = event.arguments[0]
+        channel = irc.strings.lower(event.arguments[0])
 
         _logger.info('Received invite from %s to %s', nick, channel)
 
         whitelisted_channels = split_list_option(self._config['pleaseopme']['whitelist'])
+        whitelisted_channels = map(irc.strings.lower, whitelisted_channels)
         max_channels = self._config['pleaseopme'].getint('max_channels', None)
 
         if not whitelisted_channels or channel in whitelisted_channels:
@@ -433,7 +434,7 @@ class Bot(irc.bot.SingleServerIRCBot):
                 connection.privmsg(nick, 'Joining channel {0}'.format(channel))
                 connection.join(channel)
                 connection.who(channel)
-                self._channel_tracker.add(irc.strings.lower(channel))
+                self._channel_tracker.add(channel)
         else:
             connection.privmsg(nick, 'Channel is not whitelisted.')
 
@@ -628,6 +629,8 @@ class Bot(irc.bot.SingleServerIRCBot):
             return
 
         for channel in self.channels.keys():
+            channel = irc.strings.lower(channel)
+
             for nick in self.channels[channel].users():
                 priv_flags = self.populate_user_priv_flags(self.channels[channel], nick)
                 nick = irc.strings.lower(nick)
@@ -639,7 +642,7 @@ class Bot(irc.bot.SingleServerIRCBot):
                 for priv_level in MONITORED_PRIVILEGE_LEVELS:
                     if priv_level & priv_flags:
                         self._priv_tracker.touch(
-                            channel.lower(), nick.lower(), hostmask, priv_level
+                            channel, nick, hostmask, priv_level
                         )
                         continue
 
@@ -725,6 +728,8 @@ class Bot(irc.bot.SingleServerIRCBot):
                         return  # change modes slowly one at a time
 
         for channel in self.channels.keys():
+            channel = irc.strings.lower(channel)
+
             if not self.channels[channel].is_oper(self.connection.get_nickname()):
                 _logger.debug('Not op in %s', channel)
             else:
