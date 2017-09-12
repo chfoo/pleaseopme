@@ -404,6 +404,7 @@ class Bot(irc.bot.SingleServerIRCBot):
         self.reactor.scheduler.execute_every(7201, self._auto_join_channels)
         self.reactor.scheduler.execute_every(61, self._auto_priv)
         self.reactor.scheduler.execute_every(3013, self._auto_part)
+        self.reactor.scheduler.execute_every(30, self._keep_alive)
 
     def get_version(self):
         # Remove bot from string in case server does not like bots ;)
@@ -411,6 +412,10 @@ class Bot(irc.bot.SingleServerIRCBot):
             __version__,
             super().get_version().replace('.bot', '')
         )
+
+    def _keep_alive(self):
+        if self.connection.is_connected():
+            self.connection.ping(str(time.time()))
 
     def on_invite(self, connection: ServerConnection, event: Event):
         if not isinstance(event.source, irc.client.NickMask):
