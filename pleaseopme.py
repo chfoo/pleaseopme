@@ -427,7 +427,7 @@ class Bot(irc.bot.SingleServerIRCBot):
         _logger.info('Received invite from %s to %s', nick, channel)
 
         whitelisted_channels = split_list_option(self._config['pleaseopme']['whitelist'])
-        whitelisted_channels = map(irc.strings.lower, whitelisted_channels)
+        whitelisted_channels = tuple(map(irc.strings.lower, whitelisted_channels))
         max_channels = self._config['pleaseopme'].getint('max_channels', None)
 
         if not whitelisted_channels or channel in whitelisted_channels:
@@ -770,8 +770,9 @@ class Bot(irc.bot.SingleServerIRCBot):
 
 
 def split_list_option(option: str) -> list:
+    option = option.strip()
     if option:
-        return option.split(',')
+        return list(item.strip() for item in option.split(','))
     else:
         return []
 
