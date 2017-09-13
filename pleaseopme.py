@@ -791,8 +791,11 @@ def main():
         else:
             logging.basicConfig(level=logging.INFO)
 
+    irc.client.ServerConnection.buffer_class.errors = 'replace'
+
     bot = Bot(config)
     bot.start()
+
 
 if __name__ == '__main__':
     main()
