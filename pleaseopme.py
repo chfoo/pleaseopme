@@ -26,7 +26,7 @@ import irc.connection
 import irc.modes
 
 
-__version__ = '2.0.2'
+__version__ = '2.0.3'
 _logger = logging.getLogger(__name__)
 
 
