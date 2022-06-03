@@ -1,5 +1,5 @@
 """PleaseOpMe: Auto Op bot for IRC."""
-# Copyright 2015-2017 Christopher Foo <chris.foo@gmail.com>. License GPLv3.
+# Copyright 2015-2017,2022 Christopher Foo <chris.foo@gmail.com>. License GPLv3.
 import configparser
 import contextlib
 import datetime
@@ -7,6 +7,7 @@ import enum
 import logging
 import re
 import ssl
+import string
 import time
 import threading
 import argparse
@@ -26,7 +27,7 @@ import irc.connection
 import irc.modes
 
 
-__version__ = '2.0.3'
+__version__ = '2.1a1'
 _logger = logging.getLogger(__name__)
 
 
@@ -373,6 +374,13 @@ class HostmaskMap(dict):
 
 
 class Bot(irc.bot.SingleServerIRCBot):
+    _plain_translation = dict(
+        zip(
+            map(ord, string.ascii_uppercase),
+            map(ord, string.ascii_lowercase),
+        )
+    )
+
     def __init__(self, config: configparser.ConfigParser):
         server = config['irc']['server']
         port = config['irc'].getint('port')
@@ -380,6 +388,7 @@ class Bot(irc.bot.SingleServerIRCBot):
         nickname = config['irc']['nickname']
         realname = config['irc']['realname']
         username = config['irc']['username']
+        scandinavian = config['irc'].getboolean('scandinavian', fallback="true")
 
         if use_ssl:
             connect_factory = irc.connection.Factory(wrapper=ssl.wrap_socket)
@@ -397,6 +406,7 @@ class Bot(irc.bot.SingleServerIRCBot):
         self._priv_tracker = PrivilegeTracker(config['pleaseopme']['db_path'])
         self._channel_tracker = ChannelTracker(config['pleaseopme']['db_path'])
         self._hostmask_map = HostmaskMap()
+        self._scandinavian = scandinavian
 
         self.connection.set_rate_limit(0.5)
 
@@ -413,6 +423,12 @@ class Bot(irc.bot.SingleServerIRCBot):
             super().get_version().replace('.bot', '')
         )
 
+    def _lowercase(self, text) -> str:
+        if self._scandinavian:
+            return irc.strings.lower(text)
+        else:
+            return text.translate(self._plain_translation)
+
     def _keep_alive(self):
         if self.connection.is_connected():
             self.connection.ping(str(time.time()))
@@ -422,12 +438,12 @@ class Bot(irc.bot.SingleServerIRCBot):
             return
 
         nick = event.source.nick
-        channel = irc.strings.lower(event.arguments[0])
+        channel = self._lowercase(event.arguments[0])
 
         _logger.info('Received invite from %s to %s', nick, channel)
 
         whitelisted_channels = split_list_option(self._config['pleaseopme']['whitelist'])
-        whitelisted_channels = tuple(map(irc.strings.lower, whitelisted_channels))
+        whitelisted_channels = tuple(map(self._lowercase, whitelisted_channels))
         max_channels = self._config['pleaseopme'].getint('max_channels', None)
 
         if not whitelisted_channels or channel in whitelisted_channels:
@@ -453,7 +469,7 @@ class Bot(irc.bot.SingleServerIRCBot):
         if not isinstance(event.source, irc.client.NickMask):
             return
 
-        nick = irc.strings.lower(event.source.nick)
+        nick = self._lowercase(event.source.nick)
         text = event.arguments[0]
         hostmask = self.lower_hostmask(event.source)
 
@@ -485,7 +501,7 @@ class Bot(irc.bot.SingleServerIRCBot):
                 return
 
             match = re.match(r'part\s+(.*)', text)
-            channel = irc.strings.lower(match.group(1))
+            channel = self._lowercase(match.group(1))
 
             if not self.validate_channel_name(channel):
                 reply('Huh? Is that a channel?')
@@ -516,9 +532,9 @@ class Bot(irc.bot.SingleServerIRCBot):
 
         self._update_nick_hostmask(event)
 
-        nick = irc.strings.lower(event.source.nick)
+        nick = self._lowercase(event.source.nick)
         text = event.arguments[0]
-        channel = irc.strings.lower(event.target)
+        channel = self._lowercase(event.target)
         hostmask = self.lower_hostmask(event.source)
 
         def reply(message: str):
@@ -554,8 +570,8 @@ class Bot(irc.bot.SingleServerIRCBot):
                 reply('Unauthorized.')
 
     def on_nick(self, connection: ServerConnection, event: Event):
-        old = irc.strings.lower(event.source.nick)
-        new = irc.strings.lower(event.target)
+        old = self._lowercase(event.source.nick)
+        new = self._lowercase(event.target)
 
         _logger.debug('nick %s->%s', old, new)
 
@@ -565,7 +581,7 @@ class Bot(irc.bot.SingleServerIRCBot):
         self._hostmask_map.remove(new)
 
     def on_quit(self, connection: ServerConnection, event: Event):
-        nick = irc.strings.lower(event.source.nick)
+        nick = self._lowercase(event.source.nick)
 
         _logger.debug('quit %s', nick)
 
@@ -573,8 +589,8 @@ class Bot(irc.bot.SingleServerIRCBot):
         self._hostmask_map.remove(nick)
 
     def on_kick(self, connection: ServerConnection, event: Event):
-        channel = irc.strings.lower(event.target)
-        nick = irc.strings.lower(event.arguments[0])
+        channel = self._lowercase(event.target)
+        nick = self._lowercase(event.arguments[0])
 
         _logger.debug('kicked %s from %s', nick, channel)
 
@@ -586,14 +602,12 @@ class Bot(irc.bot.SingleServerIRCBot):
     def on_mode(self, connection: ServerConnection, event: Event):
         # copied from irc.bot
         modes = irc.modes.parse_channel_modes(" ".join(event.arguments))
-        target = irc.strings.lower(event.target)
+        target = self._lowercase(event.target)
         if irc.client.is_channel(target):
             channel = self.channels[target]
             for mode in modes:
-                nick = irc.strings.lower(mode[2])
-                if mode[0] == "+":
-                    pass
-                else:
+                if mode[0] == "-" and mode[2]:
+                    nick = self._lowercase(mode[2])
                     self._priv_tracker.revoke(target, nick)
 
     def on_join(self, connection: ServerConnection, event: Event):
@@ -613,7 +627,7 @@ class Bot(irc.bot.SingleServerIRCBot):
 
     def on_whoisuser(self, connection: ServerConnection, event: Event):
         nick, user, host = event.arguments
-        nick = irc.strings.lower(nick)
+        nick = self._lowercase(nick)
         hostmask = '{0}!{1}@{2}'.format(nick, user, host)
 
         _logger.debug('Add hostmask %s %s', nick, hostmask)
@@ -621,7 +635,7 @@ class Bot(irc.bot.SingleServerIRCBot):
 
     def on_whoreply(self, connection: ServerConnection, event: Event):
         channel, user, host, server, nick, *others = event.arguments
-        nick = irc.strings.lower(nick)
+        nick = self._lowercase(nick)
         hostmask = '{0}!{1}@{2}'.format(nick, user, host)
 
         _logger.debug('Add hostmask %s %s', nick, hostmask)
@@ -634,11 +648,11 @@ class Bot(irc.bot.SingleServerIRCBot):
             return
 
         for channel in self.channels.keys():
-            channel = irc.strings.lower(channel)
+            channel = self._lowercase(channel)
 
             for nick in self.channels[channel].users():
                 priv_flags = self.populate_user_priv_flags(self.channels[channel], nick)
-                nick = irc.strings.lower(nick)
+                nick = self._lowercase(nick)
                 hostmask = self._hostmask_map.get(nick)
 
                 if not hostmask:
@@ -713,7 +727,7 @@ class Bot(irc.bot.SingleServerIRCBot):
                     if not self.channels[channel].has_user(nick):
                         continue
 
-                    nick = irc.strings.lower(nick)
+                    nick = self._lowercase(nick)
 
                     current_nick_priv_flags = self.populate_user_priv_flags(self.channels[channel], nick)
                     mode = PRIV_TO_STR_MAP.get(level)
@@ -733,7 +747,7 @@ class Bot(irc.bot.SingleServerIRCBot):
                         return  # change modes slowly one at a time
 
         for channel in self.channels.keys():
-            channel = irc.strings.lower(channel)
+            channel = self._lowercase(channel)
 
             if not self.channels[channel].is_oper(self.connection.get_nickname()):
                 _logger.debug('Not op in %s', channel)
@@ -749,7 +763,7 @@ class Bot(irc.bot.SingleServerIRCBot):
             return
 
         for channel in self.channels.keys():
-            channel = irc.strings.lower(channel)
+            channel = self._lowercase(channel)
 
             if self.channels[channel].is_oper(self.connection.get_nickname()):
                 self._channel_tracker.touch_op(channel)
@@ -758,12 +772,11 @@ class Bot(irc.bot.SingleServerIRCBot):
                 self.connection.part(channel)
                 self._channel_tracker.remove(channel)
 
-    @classmethod
-    def lower_hostmask(cls, hostmask: str) -> irc.client.NickMask:
+    def lower_hostmask(self, hostmask: str) -> irc.client.NickMask:
         if '!' in hostmask:
             nick, rest = hostmask.split('!', 1)
 
-            hostmask = '{0}!{1}'.format(irc.strings.lower(nick), rest)
+            hostmask = '{0}!{1}'.format(self._lowercase(nick), rest)
             return irc.client.NickMask(hostmask)
         else:
             return irc.client.NickMask(hostmask)
