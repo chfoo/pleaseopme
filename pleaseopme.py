@@ -300,8 +300,6 @@ class PrivilegeTracker(BaseDatabase):
 class ChannelTracker(BaseDatabase):
     """Track channels for auto join."""
 
-    MAX_OPLESS_TIME = 86400 * 2
-
     def __init__(self, db_path):
         super().__init__(db_path)
         self._lock = threading.Lock()
@@ -403,17 +401,33 @@ class Bot(irc.bot.SingleServerIRCBot):
 
         self._config = config
         self._admin_auth = AdminAuth()
-        self._priv_tracker = PrivilegeTracker(config['pleaseopme']['db_path'])
+        self._priv_tracker = PrivilegeTracker(
+            config['pleaseopme']['db_path'],
+            max_absent_time=config.getint('privileges', 'max_absent_time', fallback=86400),
+            min_priv_time=config.getint('privileges', 'min_priv_time', fallback=300)
+        )
         self._channel_tracker = ChannelTracker(config['pleaseopme']['db_path'])
         self._hostmask_map = HostmaskMap()
         self._scandinavian = scandinavian
 
-        self.connection.set_rate_limit(0.5)
+        self.connection.set_rate_limit(config['irc'].getfloat('rate_limit', fallback=0.5))
 
-        self.reactor.scheduler.execute_every(62, self._touch_privilege)
-        self.reactor.scheduler.execute_every(7201, self._auto_join_channels)
-        self.reactor.scheduler.execute_every(61, self._auto_priv)
-        self.reactor.scheduler.execute_every(3013, self._auto_part)
+        self.reactor.scheduler.execute_every(
+            config.getint('timers', 'touch_privilege', fallback=62),
+            self._touch_privilege
+        )
+        self.reactor.scheduler.execute_every(
+            config.getint('timers', 'auto_join_channels', fallback=7201),
+            self._auto_join_channels
+        )
+        self.reactor.scheduler.execute_every(
+            config.getint('timers', 'auto_priv', fallback=61),
+            self._auto_priv
+        )
+        self.reactor.scheduler.execute_every(
+            config.getint('timers', 'auto_part', fallback=3013),
+            self._auto_part
+        )
         self.reactor.scheduler.execute_every(30, self._keep_alive)
 
     def get_version(self):
@@ -762,12 +776,14 @@ class Bot(irc.bot.SingleServerIRCBot):
         if not self.connection.is_connected():
             return
 
+        max_opless_time = self._config.getint('timers', 'max_opless_time', fallback=86400 * 2)
+
         for channel in self.channels.keys():
             channel = self._lowercase(channel)
 
             if self.channels[channel].is_oper(self.connection.get_nickname()):
                 self._channel_tracker.touch_op(channel)
-            elif self._channel_tracker.opless_time(channel) > ChannelTracker.MAX_OPLESS_TIME:
+            elif self._channel_tracker.opless_time(channel) > max_opless_time:
                 _logger.info('Auto part %s', channel)
                 self.connection.part(channel)
                 self._channel_tracker.remove(channel)
