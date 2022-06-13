@@ -731,11 +731,14 @@ class Bot(irc.bot.SingleServerIRCBot):
                 self.reactor.scheduler.execute_after(1, functools.partial(self.connection.who, channel))
 
     def _auto_priv(self):
+        ignore_hostmask_modes = self._config.get('privileges', 'ignore_hostmask_modes', fallback='')
+
         def check_and_change_channel(channel: str):
             for level in MONITORED_PRIVILEGE_LEVELS:
                 tracked = tuple(self._priv_tracker.get_privileged(channel, level))
+                mode = PRIV_TO_STR_MAP.get(level)
 
-                _logger.debug('Tracked %s', tracked)
+                _logger.debug('Tracked %s on level %s', tracked, level)
 
                 for nick, tracked_hostmask in tracked:
                     if not self.channels[channel].has_user(nick):
@@ -744,18 +747,26 @@ class Bot(irc.bot.SingleServerIRCBot):
                     nick = self._lowercase(nick)
 
                     current_nick_priv_flags = self.populate_user_priv_flags(self.channels[channel], nick)
-                    mode = PRIV_TO_STR_MAP.get(level)
                     current_nick_hostmask = self._hostmask_map.get(nick)
+
+                    user_missing_mode = not current_nick_priv_flags & level and mode
+                    user_hostmask_matches = current_nick_hostmask == tracked_hostmask
+                    should_grant = user_missing_mode and user_hostmask_matches
+                    should_grant_nick_only = bool(ignore_hostmask_modes) \
+                        and user_missing_mode and mode in ignore_hostmask_modes
 
                     _logger.debug(
                         'Checking channel=%s nick=%s hostmask=%s '
-                        'flags=%s candidate=%s',
+                        'flags=%s candidate=%s '
+                        'user_missing_mode=%s user_hostmask_matches=%s '
+                        'should_grant=%s should_grant_nick_only=%s',
                         channel, nick, current_nick_hostmask,
-                        current_nick_priv_flags, mode
+                        current_nick_priv_flags, mode,
+                        user_missing_mode, user_hostmask_matches,
+                        should_grant, should_grant_nick_only
                     )
 
-                    if not current_nick_priv_flags & level and mode \
-                            and current_nick_hostmask == tracked_hostmask:
+                    if should_grant or should_grant_nick_only:
                         _logger.info('Auto mode %s %s %s', channel, nick, mode)
                         self.connection.mode(channel, '+{} {}'.format(mode, nick))
                         return  # change modes slowly one at a time
