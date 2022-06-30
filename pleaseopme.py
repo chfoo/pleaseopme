@@ -608,10 +608,16 @@ class Bot(irc.bot.SingleServerIRCBot):
 
         _logger.debug('kicked %s from %s', nick, channel)
 
-        self._admin_auth.remove(nick)
-        self._priv_tracker.revoke(channel, nick)
-        self._hostmask_map.remove(nick)
-        self._channel_tracker.remove(channel)
+        ignore_kick = self._config.getboolean(
+            "privileges", "ignore_kick", fallback=False)
+
+        if not ignore_kick:
+            self._admin_auth.remove(nick)
+            self._priv_tracker.revoke(channel, nick)
+            self._hostmask_map.remove(nick)
+
+        if nick == self._lowercase(connection.get_nickname()):
+            self._channel_tracker.remove(channel)
 
     def on_mode(self, connection: ServerConnection, event: Event):
         # copied from irc.bot
